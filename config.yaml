@@ -1,2 +1,8 @@
-ricu_data_path: "/home/ruser/data"
-out_dir: "../data" 
+ricu_data_path: "/heinz-georgenas/users/mingzhul/Simultaneous-EHR/data/ricu/"
+out_dir: "/heinz-georgenas/users/mingzhul/Simultaneous-EHR/yaib/data" 
+
+
+# TODO
+# check the distribution of data values in hirid and mimic
+# if implement different frequency, check the sample size and positive count
+
