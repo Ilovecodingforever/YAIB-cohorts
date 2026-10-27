@@ -95,6 +95,12 @@ pipeline source, ricu version, and canonical hourly eligibility marker, before
 reusing the hourly cohort. If it is missing or incompatible, regenerate the
 hourly base cohort first.
 
+The fingerprint is conservative for the files it covers: edits to any tracked
+ricu extension can require hourly regeneration even when the edit is unrelated
+to this cohort. It does not identify the contents or release/version of raw
+HiRID data stored at the configured path, and it does not fingerprint unrelated
+source files or the YAIB Python environment.
+
 The existing `ricu` aggregation is used: numeric measurements within a bin use
 the default median, and empty bins remain missing (`NA`). No interpolation,
 imputation, or synthetic measurements are added. Base-cohort eligibility keeps

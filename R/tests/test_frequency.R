@@ -46,6 +46,15 @@ expect_error(
   validate_canonical_provenance(provenance_dir, changed_provenance),
   "incompatible"
 )
+writeLines("dataset_version: hirid-v1", provenance_config)
+writeLines("cohort_definition: changed", provenance_script)
+changed_pipeline_provenance <- canonical_hourly_provenance(
+  "hirid", provenance_config, "/not/a/real/path", provenance_script
+)
+expect_error(
+  validate_canonical_provenance(provenance_dir, changed_pipeline_provenance),
+  "incompatible"
+)
 unlink(c(provenance_dir, provenance_config, provenance_script), recursive = TRUE)
 
 specs <- list(
@@ -183,41 +192,39 @@ stopifnot(
     as.numeric(explicit_patients$end, units = "mins")
 )
 
-# Synthetic ricu-style binning: floor timestamps to each requested interval and
-# retain ricu's default median aggregation for numeric values.
+# Synthetic production ricu extraction: load_concepts() receives a native
+# one-minute fun_itm, then performs change_interval() and concept aggregation.
 for (spec in specs) {
   step_minutes <- as.numeric(spec$interval, units = "mins")
-  unit <- units(spec$interval)
-  raw <- data.table(
-    stay_id = 1L,
-    time = as.difftime(c(1, step_minutes - 1, step_minutes + 1), units = "mins"),
-    value = c(10, 20, 30)
+  synthetic_loader <- local({
+    raw_times <- as.difftime(c(1, step_minutes - 1, step_minutes + 1), units = "mins")
+    function(x, id_type = "icustay", interval = hours(1), ...) {
+      as_ts_tbl(
+        data.table(stay_id = 1L, time = raw_times, val_var = c(10, 20, 30)),
+        id_vars = "stay_id",
+        index_var = "time",
+        interval = mins(1)
+      )
+    }
+  })
+  synthetic_item <- ricu:::new_itm(
+    "synthetic",
+    target = "ts_tbl",
+    class = "fun_itm",
+    callback = synthetic_loader
   )
-  raw[, time := as.difftime(
-    ricu:::round_to(as.numeric(time), step_minutes),
-    units = "mins"
-  )]
-  raw[, time := as.difftime(as.numeric(time, units = unit), units = unit)]
-  observed <- as_ts_tbl(raw, id_vars = "stay_id", index_var = "time", interval = spec$interval)
-  aggregated <- stats::aggregate(observed)
-  stopifnot(aggregated[time == as.difftime(0, units = unit), value] == 15)
-  step_time <- as.difftime(step_minutes, units = "mins")
-  step_time <- as.difftime(as.numeric(step_time, units = unit), units = unit)
-  stopifnot(aggregated[time == step_time, value] == 30)
-
-  end <- as.difftime(2 * step_minutes, units = "mins")
-  end <- as.difftime(as.numeric(end, units = unit), units = unit)
-  window <- data.table(
-    stay_id = 1L,
-    start = as.difftime(0, units = unit),
-    end = end
+  synthetic_concept <- ricu:::new_cncpt(
+    "value",
+    synthetic_item,
+    aggregate = "median"
   )
-  window <- as_win_tbl(window, id_vars = "stay_id", index_var = "start", dur_var = "end", interval = spec$interval)
-  grid <- ricu::expand(window, new_index = "time")
-  merged <- merge(grid, aggregated, all.x = TRUE)
-  end_time <- as.difftime(2 * step_minutes, units = "mins")
-  end_time <- as.difftime(as.numeric(end_time, units = unit), units = unit)
-  stopifnot(is.na(merged[time == end_time, value]))
+  aggregated <- ricu::load_concepts(
+    synthetic_concept,
+    interval = spec$interval,
+    verbose = FALSE
+  )
+  stopifnot(identical(as.numeric(aggregated$time, units = "mins"), c(0, step_minutes)))
+  stopifnot(identical(aggregated$value, c(15, 30)))
 }
 
 # Mortality is evaluated once on the canonical hourly grid, then reused for
@@ -341,6 +348,9 @@ for (spec in specs) {
   stopifnot(nrow(outputs$dyn) == expected_grid_rows[[spec$label]] * length(canonical_result$ids))
   stopifnot(!anyDuplicated(outputs$dyn[, .(stay_id, time)]))
   stopifnot(as.numeric(tail(outputs$dyn$time, 1L), units = "mins") == 24 * 60)
+  stopifnot(setequal(unique(outputs$dyn$stay_id), canonical_result$ids))
+  stopifnot(setequal(outputs$outc$stay_id, canonical_result$ids))
+  stopifnot(setequal(outputs$sta$stay_id, canonical_result$ids))
   stopifnot(identical(outputs$outc$stay_id, canonical_result$labels$stay_id))
   stopifnot(identical(outputs$outc$label, canonical_result$labels$label))
   stopifnot(identical(outputs$sta$stay_id, canonical_result$ids))
@@ -386,21 +396,29 @@ stopifnot(frequency_output_src("hirid", frequency_spec("1h", "hirid")) == "hirid
 stopifnot(frequency_output_src("hirid", frequency_spec("5min", "hirid")) == "hirid_5min")
 stopifnot(frequency_output_src("hirid", frequency_spec("15min", "hirid")) == "hirid_15min")
 
-# Arrow must preserve ricu's physical difftime unit when writing dyn.parquet.
+# Arrow must preserve ricu's physical difftime unit and values at every output
+# frequency when writing and reading dyn.parquet.
 if (requireNamespace("arrow", quietly = TRUE)) {
-  arrow_path <- tempfile("dyn-", fileext = ".parquet")
-  arrow::write_parquet(
-    data.table(
-      stay_id = 1:2,
-      time = as.difftime(c(0, 3600), units = "secs"),
-      value = c(1, 2)
-    ),
-    arrow_path
-  )
-  arrow_field <- arrow::ParquetFileReader$create(arrow_path)$GetSchema()$GetFieldByName("time")
-  arrow_schema_text <- paste(capture.output(print(arrow_field)), collapse = " ")
-  stopifnot(grepl("duration\\[s\\]", arrow_schema_text))
-  unlink(arrow_path)
+  for (spec in specs) {
+    step_minutes <- as.numeric(spec$interval, units = "mins")
+    expected_minutes <- c(0, step_minutes, 2 * step_minutes)
+    arrow_path <- tempfile("dyn-", fileext = ".parquet")
+    arrow::write_parquet(
+      data.table(
+        stay_id = 1:3,
+        time = as.difftime(expected_minutes, units = "mins"),
+        value = 1:3
+      ),
+      arrow_path
+    )
+    arrow_field <- arrow::ParquetFileReader$create(arrow_path)$GetSchema()$GetFieldByName("time")
+    arrow_schema_text <- paste(capture.output(print(arrow_field)), collapse = " ")
+    arrow_read <- arrow::read_parquet(arrow_path)
+    stopifnot(grepl("duration\\[s\\]", arrow_schema_text))
+    stopifnot(identical(units(arrow_read$time), "secs"))
+    stopifnot(identical(as.numeric(arrow_read$time, units = "mins"), expected_minutes))
+    unlink(arrow_path)
+  }
 }
 
 # This opt-in check exercises the real ricu::load_concepts path. The default
