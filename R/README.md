@@ -58,6 +58,38 @@ Once [base_cohort.R](base_cohort.R) was run, data for a single task like mortali
 Rscript "mortality.R" --src mimic_demo
 ```
 
+### HiRID temporal resolution
+
+The base and mortality24 pipelines accept `--frequency` with `5min`, `15min`,
+or `1h`. The default is `1h`, which preserves the existing hourly behavior and
+output paths. Non-hourly frequencies are currently supported only for HiRID.
+
+```bash
+Rscript base_cohort.R --src hirid --frequency 5min
+Rscript mortality.R --src hirid --frequency 5min
+
+Rscript base_cohort.R --src hirid --frequency 15min
+Rscript mortality.R --src hirid --frequency 15min
+
+Rscript base_cohort.R --src hirid --frequency 1h
+Rscript mortality.R --src hirid --frequency 1h
+```
+
+The hourly outputs remain in `base/hirid/` and `mortality24/hirid/`. The
+non-hourly outputs are written to `base/hirid_5min/`,
+`mortality24/hirid_5min/`, `base/hirid_15min/`, and
+`mortality24/hirid_15min/`. Each directory keeps the existing
+`dyn.parquet`, `sta.parquet`, `outc.parquet`, and `attrition.csv` naming
+convention where applicable.
+
+The existing `ricu` aggregation is used: numeric measurements within a bin use
+the default median, and empty bins remain missing (`NA`). No interpolation,
+imputation, or synthetic measurements are added. Base-cohort eligibility keeps
+the original hourly definition across output frequencies; only the dynamic
+measurement grid changes. The synthetic unit tests cover interval conversion,
+grid construction, aggregation, missing bins, labels, and cache isolation, but
+cohort counts and distributions still require a separate real-data validation.
+
 where `mortality.R` should be replaced with the task file of interest and `mimic_demo` with the database of interest (one of `mimic_demo`, `eicu_demo`, `aumc`, `hirid`, `eicu`, `mimic`, `miiv`). Data can be extracted from all datasets simultaneously via `bash gen_cohort.sh mortality`.
 
 The output directory for the extracted data can also be set in [config.yaml](../config.yaml).

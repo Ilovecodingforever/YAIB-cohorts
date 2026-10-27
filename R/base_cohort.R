@@ -5,19 +5,22 @@ library(data.table)
 library(vctrs)
 library(yaml)
 
+source("src/frequency.R")
+
+# Create a parser
+p <- arg_parser("Extract and preprocess ICU mortality data")
+p <- add_argument(p, "--src", help="source database", default="mimic_demo")
+p <- add_argument(p, "--frequency", help="temporal resolution: 5min, 15min, or 1h", default="1h")
+argv <- parse_args(p)
+
+src <- argv$src 
+frequency <- frequency_spec(argv$frequency, src)
+
 source(".load_ricu.R")
 source("src/misc.R")
 source("src/steps.R")
 source("src/sequential.R")
 source("src/obs_time.R")
-
-
-# Create a parser
-p <- arg_parser("Extract and preprocess ICU mortality data")
-p <- add_argument(p, "--src", help="source database", default="mimic_demo")
-argv <- parse_args(p)
-
-src <- argv$src 
 conf <- yaml.load_file("../config.yaml")
 path <- file.path(conf$out_dir, "base")
 
@@ -26,9 +29,10 @@ cncpt_env <- new.env()
 
 # Task description
 time_flow <- "sequential" # sequential / continuous
-time_unit <- hours
-freq <- 1L
-max_len <- 7 * 24  # = 7 days
+time_unit <- frequency$time_unit
+freq <- frequency$freq
+interval <- frequency$interval
+max_len <- hours(7 * 24)  # = 7 days
 
 static_vars <- c("age", "sex", "ethnic", "adm", "los_icu", "los_hosp")
 
@@ -45,8 +49,8 @@ outcome_type <- NULL
 
 
 
-patients <- stay_windows(src, interval = time_unit(freq))
-patients <- as_win_tbl(patients, index_var = "start", dur_var = "end", interval = time_unit(freq))
+patients <- stay_windows(src, interval = interval)
+patients <- as_win_tbl(patients, index_var = "start", dur_var = "end", interval = interval)
 
 
 # Define outcome ----------------------------------------------------------
@@ -58,7 +62,24 @@ patients <- as_win_tbl(patients, index_var = "start", dur_var = "end", interval 
 
 # Define observation times ------------------------------------------------
 
-stop_obs_at(patients, offset = ricu:::re_time(hours(max_len), time_unit(freq)), by_ref = TRUE)
+stop_obs_at(patients, offset = frequency_offset(max_len, interval), by_ref = TRUE)
+
+# Eligibility remains defined on the original hourly grid. The selected grid
+# below only changes the temporal representation written to disk.
+eligibility_interval <- hours(1)
+eligibility_patients <- stay_windows(src, interval = eligibility_interval)
+eligibility_patients <- as_win_tbl(
+  eligibility_patients,
+  index_var = "start",
+  dur_var = "end",
+  interval = eligibility_interval
+)
+stop_obs_at(
+  eligibility_patients,
+  offset = frequency_offset(max_len, eligibility_interval),
+  by_ref = TRUE,
+  target = eligibility_patients
+)
 
 
 
@@ -66,7 +87,7 @@ stop_obs_at(patients, offset = ricu:::re_time(hours(max_len), time_unit(freq)), 
 # Apply exclusion criteria ------------------------------------------------
 
 # 1. Invalid LoS
-excl1 <- patients[end < 0, id_vars(patients), with = FALSE]
+excl1 <- eligibility_patients[end < 0, id_vars(eligibility_patients), with = FALSE]
 
 # 2. Stay <6h
 x <- load_step("los_icu")
@@ -83,7 +104,7 @@ n_obs_per_row <- function(x, ...) {
   x[, .SD, .SDcols = !c(obs)]
 }
 
-x <- load_step(dict[dynamic_vars], interval=time_unit(freq), cache = TRUE)
+x <- load_step(dict[dynamic_vars], interval = eligibility_interval, cache = TRUE)
 x <- summary_step(x, "count", drop_index = TRUE)
 x <- filter_step(x, ~ . < 4)
 
@@ -91,8 +112,8 @@ excl3 <- unique(x[, id_vars(x), with = FALSE])
 
 
 # 4. More than 12 hour gaps between measurements
-map_to_grid <- function(x) {
-  grid <- ricu::expand(patients)
+map_to_eligibility_grid <- function(x) {
+  grid <- ricu::expand(eligibility_patients)
   merge(grid, x, all.x = TRUE)
 }
 
@@ -102,12 +123,12 @@ longest_rle <- function(x, val) {
   x[, .(lengths = max(lengths)), , by = c(id_vars(x))]
 }
 
-x <- load_step(dict[dynamic_vars], interval=time_unit(freq), cache = TRUE)
-x <- function_step(x, map_to_grid)
+x <- load_step(dict[dynamic_vars], interval = eligibility_interval, cache = TRUE)
+x <- function_step(x, map_to_eligibility_grid)
 x <- function_step(x, n_obs_per_row)
 x <- mutate_step(x, ~ . > 0)
 x <- function_step(x, longest_rle, val = FALSE)
-x <- filter_step(x, ~ . > as.numeric(ricu:::re_time(hours(12), time_unit(1)) / freq))
+x <- filter_step(x, ~ . > frequency_steps(hours(12), eligibility_interval))
 
 excl4 <- unique(x[, id_vars(x), with = FALSE])
 
@@ -130,10 +151,15 @@ patient_ids <- patients[, .SD, .SDcols = id_var(patients)]
 # Prepare data ------------------------------------------------------------
 
 # Get predictors
-dyn <- load_step(dict[dynamic_vars], interval=time_unit(freq), cache = TRUE)
+dyn <- load_step(dict[dynamic_vars], interval = interval, cache = TRUE)
 sta <- load_step(dict[static_vars], cache = TRUE)
 
 # Transform all variables into the target format
+map_to_grid <- function(x) {
+  grid <- ricu::expand(patients)
+  merge(grid, x, all.x = TRUE)
+}
+
 dyn_fmt <- function_step(dyn, map_to_grid)
 rename_cols(dyn_fmt, c("stay_id", "time"), meta_vars(dyn_fmt), by_ref = TRUE)
 
@@ -143,7 +169,9 @@ rename_cols(sta_fmt, c("stay_id"), id_vars(sta), by_ref = TRUE)
 
 # Write to disk -----------------------------------------------------------
 
-out_path <- paste0(path, "/", src)
+out_path <- paste0(path, "/", frequency_output_src(src, frequency))
+
+assert_that(!anyDuplicated(dyn_fmt[, .(stay_id, time)]))
 
 if (!dir.exists(out_path)) {
   dir.create(out_path, recursive = TRUE)

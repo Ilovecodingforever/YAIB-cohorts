@@ -5,19 +5,22 @@ library(data.table)
 library(vctrs)
 library(yaml)
 
+source("src/frequency.R")
+
+# Create a parser
+p <- arg_parser("Extract and preprocess ICU mortality data")
+p <- add_argument(p, "--src", help="source database", default="mimic_demo")
+p <- add_argument(p, "--frequency", help="temporal resolution: 5min, 15min, or 1h", default="1h")
+argv <- parse_args(p)
+
+src <- argv$src 
+frequency <- frequency_spec(argv$frequency, src)
+
 source(".load_ricu.R")
 source("src/misc.R")
 source("src/steps.R")
 source("src/sequential.R")
 source("src/obs_time.R")
-
-
-# Create a parser
-p <- arg_parser("Extract and preprocess ICU mortality data")
-p <- add_argument(p, "--src", help="source database", default="mimic_demo")
-argv <- parse_args(p)
-
-src <- argv$src 
 conf <- yaml.load_file("../config.yaml")
 path <- file.path(conf$out_dir, "mortality24")
 
@@ -26,8 +29,9 @@ cncpt_env <- new.env()
 
 # Task description
 time_flow <- "sequential" # static / sequential / continuous
-time_unit <- hours
-freq <- 1L
+time_unit <- frequency$time_unit
+freq <- frequency$freq
+interval <- frequency$interval
 max_len <- hours(24L)
 
 static_vars <- c("age", "sex", "height", "weight")
@@ -45,24 +49,29 @@ outcome_type   <- "static" # static / dynamic
 
 
 
-patients <- stay_windows(src, interval = time_unit(freq))
-patients <- as_win_tbl(patients, index_var = "start", dur_var = "end", interval = time_unit(freq))
+patients <- stay_windows(src, interval = interval)
+patients <- as_win_tbl(patients, index_var = "start", dur_var = "end", interval = interval)
 
 # Only keep patients in the base cohort (see base_cohort.R)
-base <- arrow::read_parquet(file.path(conf$out_dir, "base", src, "sta.parquet"))
+base <- arrow::read_parquet(file.path(
+  conf$out_dir,
+  "base",
+  frequency_output_src(src, frequency),
+  "sta.parquet"
+))
 patients <- patients[id_col(patients) %in% id_col(base)]
 
 
 # Define outcome ----------------------------------------------------------
 
-outc <- load_step(dict["death_icu"], interval=time_unit(freq))
+outc <- load_step(dict["death_icu"], interval = interval)
 outc <- filter_step(outc, ~ . == TRUE)
 
 
 # Define observation times ------------------------------------------------
 
-stop_obs_at(outc, offset = hours(0L), by_ref = TRUE)
-stop_obs_at(patients, offset = ricu:::re_time(max_len, time_unit(freq)), by_ref = TRUE)
+stop_obs_at(outc, offset = frequency_offset(hours(0L), interval), by_ref = TRUE)
+stop_obs_at(patients, offset = frequency_offset(max_len, interval), by_ref = TRUE)
 
 
 
@@ -72,7 +81,7 @@ stop_obs_at(patients, offset = ricu:::re_time(max_len, time_unit(freq)), by_ref 
 
 # 6. Died within the first 30 hours of ICU admission
 x <- filter_step(outc, ~ . == TRUE)
-x <- filter_step(x, ~ . < 30, col = index_col)
+x <- filter_step(x, ~ . < frequency_index_value(hours(30), interval), col = index_col)
 
 excl6 <- unique(x[, id_vars(x), with = FALSE])
 
@@ -94,7 +103,7 @@ patient_ids <- patients[, .SD, .SDcols = id_var(patients)]
 # Prepare data ------------------------------------------------------------
 
 # Get predictors
-dyn <- load_step(dict[dynamic_vars], interval=time_unit(freq), cache = TRUE)
+dyn <- load_step(dict[dynamic_vars], interval = interval, cache = TRUE)
 sta <- load_step(dict[static_vars], cache = TRUE)
 
 # Transform all variables into the target format
@@ -124,7 +133,9 @@ rename_cols(sta_fmt, c("stay_id"), id_vars(sta), by_ref = TRUE)
 
 # Write to disk -----------------------------------------------------------
 
-out_path <- paste0(path, "/", src)
+out_path <- paste0(path, "/", frequency_output_src(src, frequency))
+
+assert_that(!anyDuplicated(dyn_fmt[, .(stay_id, time)]))
 
 if (!dir.exists(out_path)) {
   dir.create(out_path, recursive = TRUE)

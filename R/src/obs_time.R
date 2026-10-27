@@ -1,14 +1,17 @@
 
 
 
-stop_obs_at <- function(x, offset, by_ref = TRUE) {
+stop_obs_at <- function(x, offset, by_ref = TRUE, target = NULL) {
+  if (is.null(target))
+    target <- patients
+
   assert_that(is_atomic(offset), 
               ricu:::is_interval(offset), 
               units(offset) == units(index_col(x)), 
-              units(offset) == units(index_col(patients)))
+              units(offset) == units(index_col(target)))
   
   if (!by_ref) {
-    patients <- copy(patients)
+    target <- copy(target)
     x <- copy(x)
   }
   
@@ -16,6 +19,6 @@ stop_obs_at <- function(x, offset, by_ref = TRUE) {
   idx <- index_var(x)
   
   x <- x[, .(...time = min(.SD[[idx]]) + offset), by = c(ids)]
-  patients[x, end := pmin(end, ...time), on = c(ids)] # Check if on=ids is correct
-  invisible(patients)
+  target[x, end := pmin(end, ...time), on = c(ids)] # Check if on=ids is correct
+  invisible(target)
 }

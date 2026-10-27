@@ -30,12 +30,21 @@ load_step.concept <- function(x, merge_data = TRUE, ...){
   }
 }
 
+step_cache_key <- function(src, concept, interval = NULL) {
+  interval_key <- if (is.null(interval)) {
+    "none"
+  } else {
+    paste0(as.numeric(interval, units = "secs"), "s")
+  }
+  paste(src, concept, interval_key, sep = "::")
+}
+
 load_step.cncpt <- function(x, cache = FALSE, ...){
   assert_that(ricu::is_cncpt(x))
-  key <- field(x, 'name')
+  dots <- list(...)
+  interval <- dots$interval
+  key <- step_cache_key(src, field(x, 'name'), interval)
   # TODO: should this be limited to patients left in cohort
-  # TODO: make cncpt_env src dependent
-  # TODO: check interval that was previously loaded
   res <- get0(key, envir = cncpt_env, mode = "list", inherits = FALSE, 
               ifnotfound = NULL)
   if (is.null(res)) {
