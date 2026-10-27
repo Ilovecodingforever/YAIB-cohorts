@@ -49,3 +49,13 @@ frequency_steps <- function(duration, interval) {
 frequency_index_value <- function(duration, interval) {
   as.numeric(frequency_offset(duration, interval))
 }
+
+
+mortality_canonical_interval <- function() {
+  as.difftime(1, units = "hours")
+}
+
+
+mortality_cutoff_value <- function(interval = mortality_canonical_interval()) {
+  frequency_index_value(as.difftime(30, units = "hours"), interval)
+}

@@ -80,7 +80,9 @@ non-hourly outputs are written to `base/hirid_5min/`,
 `mortality24/hirid_5min/`, `base/hirid_15min/`, and
 `mortality24/hirid_15min/`. Each directory keeps the existing
 `dyn.parquet`, `sta.parquet`, `outc.parquet`, and `attrition.csv` naming
-convention where applicable.
+convention where applicable. Mortality eligibility and per-stay labels are
+computed from the canonical hourly processing and reused for all three output
+frequencies; only dynamic features change resolution.
 
 The existing `ricu` aggregation is used: numeric measurements within a bin use
 the default median, and empty bins remain missing (`NA`). No interpolation,

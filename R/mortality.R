@@ -51,27 +51,48 @@ outcome_type   <- "static" # static / dynamic
 
 patients <- stay_windows(src, interval = interval)
 patients <- as_win_tbl(patients, index_var = "start", dur_var = "end", interval = interval)
+stop_obs_at(patients, offset = frequency_offset(max_len, interval), by_ref = TRUE)
 
-# Only keep patients in the base cohort (see base_cohort.R)
+# Base eligibility is canonical hourly, so use the hourly base cohort for every
+# requested output frequency.
 base <- arrow::read_parquet(file.path(
   conf$out_dir,
   "base",
-  frequency_output_src(src, frequency),
+  src,
   "sta.parquet"
 ))
-patients <- patients[id_col(patients) %in% id_col(base)]
+
+canonical_interval <- mortality_canonical_interval()
+cohort_patients <- stay_windows(src, interval = canonical_interval)
+cohort_patients <- as_win_tbl(
+  cohort_patients,
+  index_var = "start",
+  dur_var = "end",
+  interval = canonical_interval
+)
+cohort_patients <- cohort_patients[id_col(cohort_patients) %in% id_col(base)]
 
 
 # Define outcome ----------------------------------------------------------
 
-outc <- load_step(dict["death_icu"], interval = interval)
+outc <- load_step(dict["death_icu"], interval = canonical_interval)
 outc <- filter_step(outc, ~ . == TRUE)
 
 
 # Define observation times ------------------------------------------------
 
-stop_obs_at(outc, offset = frequency_offset(hours(0L), interval), by_ref = TRUE)
-stop_obs_at(patients, offset = frequency_offset(max_len, interval), by_ref = TRUE)
+stop_obs_at(
+  outc,
+  offset = frequency_offset(hours(0L), canonical_interval),
+  by_ref = TRUE,
+  target = cohort_patients
+)
+stop_obs_at(
+  cohort_patients,
+  offset = frequency_offset(max_len, canonical_interval),
+  by_ref = TRUE,
+  target = cohort_patients
+)
 
 
 
@@ -81,7 +102,11 @@ stop_obs_at(patients, offset = frequency_offset(max_len, interval), by_ref = TRU
 
 # 6. Died within the first 30 hours of ICU admission
 x <- filter_step(outc, ~ . == TRUE)
-x <- filter_step(x, ~ . < frequency_index_value(hours(30), interval), col = index_col)
+x <- filter_step(
+  x,
+  ~ . < mortality_cutoff_value(canonical_interval),
+  col = index_col
+)
 
 excl6 <- unique(x[, id_vars(x), with = FALSE])
 
@@ -94,10 +119,11 @@ excl7 <- unique(x[, id_vars(x), with = FALSE])
 
 
 # Apply exclusions
-patients <- exclude(patients, mget(paste0("excl", 6:7)))
-attrition <- as.data.table(patients[c("incl_n", "excl_n_total", "excl_n")])
-patients <- patients[['incl']]
-patient_ids <- patients[, .SD, .SDcols = id_var(patients)]
+cohort <- exclude(cohort_patients, mget(paste0("excl", 6:7)))
+attrition <- as.data.table(cohort[c("incl_n", "excl_n_total", "excl_n")])
+cohort_patients <- cohort[['incl']]
+patient_ids <- cohort_patients[, .SD, .SDcols = id_var(cohort_patients)]
+patients <- patients[id_col(patients) %in% id_col(patient_ids)]
 
 
 # Prepare data ------------------------------------------------------------
@@ -110,7 +136,7 @@ sta <- load_step(dict[static_vars], cache = TRUE)
 assert_that(outcome_type == "static", time_flow == "sequential")
 
 map_to_patients <- function(x) {
-  grid <- patients[, .SD, .SDcols = id_var(patients)]
+  grid <- cohort_patients[, .SD, .SDcols = id_var(cohort_patients)]
   merge(grid, x, all.x = TRUE)
 }
 
