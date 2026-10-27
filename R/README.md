@@ -16,6 +16,20 @@ Rscript setup_env.R
 
 > Update: if you are running into issues setting up your environment, there is now a Docker workflow that should simplify creating the environment. See the subfolder `docker` for more information.
 
+
+
+conda activate /home/mingzhul/projects/Simultaneous-EHR/repos/YAIB/.conda/yaib
+
+conda install -c conda-forge udunits2 pkg-config
+
+export PKG_CONFIG_PATH="$CONDA_PREFIX/lib/pkgconfig:${PKG_CONFIG_PATH:-}"
+export CPATH="$CONDA_PREFIX/include:${CPATH:-}"
+export LIBRARY_PATH="$CONDA_PREFIX/lib:${LIBRARY_PATH:-}"
+export LD_LIBRARY_PATH="$CONDA_PREFIX/lib:${LD_LIBRARY_PATH:-}"
+
+
+
+
 ### Step 1: Load the datasets into `ricu`
 
 In order to access the full datasets through R, you need to download them and make them available to `ricu`. Please follow the instructions given by the `ricu` package: `?ricu::import_src`.
