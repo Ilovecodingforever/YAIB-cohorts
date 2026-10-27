@@ -1,11 +1,15 @@
 library(data.table)
 library(ricu)
 library(assertthat)
+library(vctrs)
+library(rlang)
 
 stopifnot(file.exists("src/frequency.R"), file.exists("src/steps.R"))
 source("src/frequency.R")
 source("src/misc.R")
 source("src/steps.R")
+source("src/sequential.R")
+source("src/obs_time.R")
 
 expect_error <- function(expr, pattern) {
   error <- tryCatch({
@@ -59,9 +63,102 @@ for (spec in specs) {
   grid <- ricu::expand(window, new_index = "time")
   stopifnot(nrow(grid) == expected_grid_rows[[spec$label]])
   stopifnot(as.numeric(grid$time[1], units = "mins") == 0)
-  stopifnot(as.numeric(grid$time[.N], units = "mins") == 24 * 60)
+  stopifnot(as.numeric(tail(grid$time, 1L), units = "mins") == 24 * 60)
   stopifnot(!anyDuplicated(grid[, .(stay_id, time)]))
 }
+
+# stop_obs_at preserves the same physical window at every resolution. Off-grid
+# event times cap the physical window exactly, while expand() retains only the
+# aligned grid points at or before that endpoint.
+make_window <- function(spec, duration_minutes = 48 * 60) {
+  unit <- units(spec$interval)
+  end <- as.difftime(duration_minutes, units = "mins")
+  end <- as.difftime(as.numeric(end, units = unit), units = unit)
+  as_win_tbl(
+    data.table(
+      stay_id = 1L,
+      start = as.difftime(0, units = unit),
+      end = end
+    ),
+    id_vars = "stay_id",
+    index_var = "start",
+    dur_var = "end",
+    interval = spec$interval
+  )
+}
+
+make_event <- function(spec, event_minutes) {
+  unit <- units(spec$interval)
+  event <- as.difftime(event_minutes, units = "mins")
+  event_in_unit <- as.numeric(event, units = unit)
+  aligned <- floor(event_in_unit / as.numeric(spec$interval)) * as.numeric(spec$interval)
+  result <- as_ts_tbl(
+    data.table(stay_id = 1L, time = as.difftime(aligned, units = unit), event = TRUE),
+    id_vars = "stay_id",
+    index_var = "time",
+    interval = spec$interval
+  )
+  # Model the raw off-grid timestamp after constructing a valid ricu table.
+  data.table::set(result, j = "time", value = as.difftime(event_in_unit, units = unit))
+  result
+}
+
+for (spec in specs) {
+  window <- make_window(spec)
+  stop_obs_at(
+    make_event(spec, 6 * 60 + 2),
+    offset = frequency_offset(as.difftime(0, units = "hours"), spec$interval),
+    target = window
+  )
+  stopifnot(as.numeric(window$end, units = "mins") == 6 * 60 + 2)
+
+  grid <- ricu::expand(window, new_index = "time")
+  last_grid_minute <- as.numeric(tail(grid$time, 1L), units = "mins")
+  step_minutes <- as.numeric(spec$interval, units = "mins")
+  stopifnot(last_grid_minute <= 6 * 60 + 2)
+  stopifnot(last_grid_minute + step_minutes > 6 * 60 + 2)
+  stopifnot(!anyDuplicated(grid[, .(stay_id, time)]))
+
+  endpoint_window <- make_window(spec)
+  stop_obs_at(
+    make_event(spec, 24 * 60),
+    offset = frequency_offset(as.difftime(0, units = "hours"), spec$interval),
+    target = endpoint_window
+  )
+  endpoint_grid <- ricu::expand(endpoint_window, new_index = "time")
+  stopifnot(as.numeric(endpoint_window$end, units = "mins") == 24 * 60)
+  stopifnot(as.numeric(tail(endpoint_grid$time, 1L), units = "mins") == 24 * 60)
+  stopifnot(nrow(endpoint_grid) == expected_grid_rows[[spec$label]])
+
+  after_endpoint <- make_window(spec)
+  stop_obs_at(
+    make_event(spec, 24 * 60 + 1),
+    offset = frequency_offset(as.difftime(0, units = "hours"), spec$interval),
+    target = after_endpoint
+  )
+  stop_obs_at(
+    after_endpoint,
+    offset = frequency_offset(as.difftime(24, units = "hours"), spec$interval),
+    target = after_endpoint
+  )
+  stopifnot(as.numeric(after_endpoint$end, units = "mins") == 24 * 60)
+}
+
+# The default target behavior remains equivalent to the original hourly call
+# pattern, which relied on the caller's global `patients` object.
+patients <- make_window(frequency_spec("1h", "hirid"))
+legacy_event <- make_event(frequency_spec("1h", "hirid"), 6 * 60 + 2)
+stop_obs_at(legacy_event, offset = hours(0))
+stop_obs_at(patients, offset = hours(24))
+
+explicit_patients <- make_window(frequency_spec("1h", "hirid"))
+explicit_event <- make_event(frequency_spec("1h", "hirid"), 6 * 60 + 2)
+stop_obs_at(explicit_event, offset = hours(0), target = explicit_patients)
+stop_obs_at(explicit_patients, offset = hours(24), target = explicit_patients)
+stopifnot(
+  as.numeric(patients$end, units = "mins") ==
+    as.numeric(explicit_patients$end, units = "mins")
+)
 
 # Synthetic ricu-style binning: floor timestamps to the requested interval and
 # retain ricu's default median aggregation for numeric values.
@@ -125,7 +222,9 @@ canonical_mortality_result <- function() {
 
   list(
     ids = eligible[order(stay_id), stay_id],
-    labels = labels
+    labels = labels,
+    cohort = eligible,
+    events = deaths
   )
 }
 
@@ -140,21 +239,84 @@ stopifnot(frequency_index_value(hours(29), mortality_canonical_interval()) < 30)
 stopifnot(frequency_index_value(hours(30), mortality_canonical_interval()) == 30)
 stopifnot(frequency_index_value(hours(31), mortality_canonical_interval()) > 30)
 
-# Every output frequency reuses the same canonical cohort and labels while its
-# dynamic window has its own expected grid.
-for (spec in specs) {
+build_synthetic_outputs <- function(spec, mortality) {
   unit <- units(spec$interval)
-  window <- data.table(
-    stay_id = canonical_result$ids,
-    start = as.difftime(rep(0, length(canonical_result$ids)), units = unit),
-    end = as.difftime(rep(24 * 60, length(canonical_result$ids)), units = "mins")
+  ids <- mortality$ids
+  end <- as.difftime(48 * 60, units = "mins")
+  end <- as.difftime(as.numeric(end, units = unit), units = unit)
+  patients <- as_win_tbl(
+    data.table(
+      stay_id = ids,
+      start = as.difftime(rep(0, length(ids)), units = unit),
+      end = rep(end, length(ids))
+    ),
+    id_vars = "stay_id",
+    index_var = "start",
+    dur_var = "end",
+    interval = spec$interval
   )
-  window[, end := as.difftime(as.numeric(end, units = unit), units = unit)]
-  window <- as_win_tbl(window, id_vars = "stay_id", index_var = "start", dur_var = "end", interval = spec$interval)
-  grid <- ricu::expand(window, new_index = "time")
-  stopifnot(nrow(grid) == expected_grid_rows[[spec$label]] * length(canonical_result$ids))
-  stopifnot(!anyDuplicated(grid[, .(stay_id, time)]))
-  stopifnot(identical(canonical_mortality_result(), canonical_result))
+  stop_obs_at(
+    patients,
+    offset = frequency_offset(as.difftime(24, units = "hours"), spec$interval),
+    target = patients
+  )
+  assign("patients", patients, envir = .GlobalEnv)
+
+  measurement_time <- as.difftime(c(0, 6 * 60), units = "mins")
+  measurement_time <- as.difftime(as.numeric(measurement_time, units = unit), units = unit)
+  dynamic <- as_ts_tbl(
+    data.table(
+      stay_id = rep(ids, each = 2L),
+      time = rep(measurement_time, length(ids)),
+      value = seq_len(2L * length(ids))
+    ),
+    id_vars = "stay_id",
+    index_var = "time",
+    interval = spec$interval
+  )
+  dyn_fmt <- function_step(dynamic, map_to_grid)
+  dyn_fmt <- filter_step(dyn_fmt, patients)
+  rename_cols(dyn_fmt, c("stay_id", "time"), meta_vars(dyn_fmt), by_ref = TRUE)
+
+  cohort_patients <- mortality$cohort
+  map_to_patients <- function(x) {
+    grid <- cohort_patients[, .SD, .SDcols = id_var(cohort_patients)]
+    merge(grid, x, all.x = TRUE)
+  }
+  outc_fmt <- function_step(mortality$events, map_to_patients)
+  outc_fmt <- mutate_step(outc_fmt, ricu::replace_na, val = FALSE)
+  outc_fmt <- mutate_step(outc_fmt, as.integer)
+  ind <- index_var(outc_fmt)
+  outc_fmt[, c(ind) := NULL]
+  rename_cols(outc_fmt, c("stay_id", "label"), by_ref = TRUE)
+
+  sta <- as_id_tbl(
+    data.table(stay_id = 1:4, age = 18:21),
+    id_vars = "stay_id"
+  )
+  sta_fmt <- function_step(sta, map_to_patients)
+  rename_cols(sta_fmt, c("stay_id"), id_vars(sta), by_ref = TRUE)
+
+  list(dyn = dyn_fmt, outc = outc_fmt, sta = sta_fmt)
+}
+
+# Every output frequency reuses the same canonical cohort and labels while its
+# dynamic window has its own grid and output construction.
+hourly_outputs <- NULL
+for (spec in specs) {
+  outputs <- build_synthetic_outputs(spec, canonical_result)
+  stopifnot(nrow(outputs$dyn) == expected_grid_rows[[spec$label]] * length(canonical_result$ids))
+  stopifnot(!anyDuplicated(outputs$dyn[, .(stay_id, time)]))
+  stopifnot(as.numeric(tail(outputs$dyn$time, 1L), units = "mins") == 24 * 60)
+  stopifnot(identical(outputs$outc$stay_id, canonical_result$labels$stay_id))
+  stopifnot(identical(outputs$outc$label, canonical_result$labels$label))
+  stopifnot(identical(outputs$sta$stay_id, canonical_result$ids))
+  if (is.null(hourly_outputs)) {
+    hourly_outputs <- outputs[c("outc", "sta")]
+  } else {
+    stopifnot(identical(outputs$outc, hourly_outputs$outc))
+    stopifnot(identical(outputs$sta, hourly_outputs$sta))
+  }
 }
 
 # The new default-hourly path matches the original strict hourly cutoff.

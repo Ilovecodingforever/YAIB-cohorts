@@ -16,13 +16,23 @@ argv <- parse_args(p)
 src <- argv$src 
 frequency <- frequency_spec(argv$frequency, src)
 
+conf <- yaml.load_file("../config.yaml")
+path <- file.path(conf$out_dir, "mortality24")
+base_path <- file.path(conf$out_dir, "base", src, "sta.parquet")
+if (!file.exists(base_path)) {
+  stop(
+    "Canonical hourly base cohort not found at ", base_path, ". ",
+    "Generate it first with: cd R && Rscript base_cohort.R --src ",
+    src, " --frequency 1h",
+    call. = FALSE
+  )
+}
+
 source(".load_ricu.R")
 source("src/misc.R")
 source("src/steps.R")
 source("src/sequential.R")
 source("src/obs_time.R")
-conf <- yaml.load_file("../config.yaml")
-path <- file.path(conf$out_dir, "mortality24")
 
 
 cncpt_env <- new.env()
@@ -55,12 +65,7 @@ stop_obs_at(patients, offset = frequency_offset(max_len, interval), by_ref = TRU
 
 # Base eligibility is canonical hourly, so use the hourly base cohort for every
 # requested output frequency.
-base <- arrow::read_parquet(file.path(
-  conf$out_dir,
-  "base",
-  src,
-  "sta.parquet"
-))
+base <- arrow::read_parquet(base_path)
 
 canonical_interval <- mortality_canonical_interval()
 cohort_patients <- stay_windows(src, interval = canonical_interval)
