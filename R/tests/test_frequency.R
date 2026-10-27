@@ -25,6 +25,29 @@ stopifnot(frequency_spec("15min", "hirid")$freq == 15L)
 expect_error(frequency_spec("10min", "hirid"), "5min, 15min, 1h")
 expect_error(frequency_spec("5min", "mimic_demo"), "only for --src hirid")
 
+# Canonical hourly provenance must be written and must reject a changed
+# configuration before a finer-resolution cohort can reuse it.
+provenance_dir <- tempfile("canonical-provenance-")
+dir.create(provenance_dir)
+provenance_config <- tempfile("config-", fileext = ".yaml")
+provenance_script <- tempfile("pipeline-", fileext = ".R")
+writeLines("dataset_version: hirid-v1", provenance_config)
+writeLines("cohort_definition: canonical-hourly-v1", provenance_script)
+provenance <- canonical_hourly_provenance(
+  "hirid", provenance_config, "/not/a/real/path", provenance_script
+)
+write_canonical_provenance(provenance_dir, provenance)
+validate_canonical_provenance(provenance_dir, provenance)
+writeLines("dataset_version: hirid-v2", provenance_config)
+changed_provenance <- canonical_hourly_provenance(
+  "hirid", provenance_config, "/not/a/real/path", provenance_script
+)
+expect_error(
+  validate_canonical_provenance(provenance_dir, changed_provenance),
+  "incompatible"
+)
+unlink(c(provenance_dir, provenance_config, provenance_script), recursive = TRUE)
+
 specs <- list(
   frequency_spec("1h", "hirid"),
   frequency_spec("15min", "hirid"),
@@ -362,5 +385,31 @@ rm(load_concepts)
 stopifnot(frequency_output_src("hirid", frequency_spec("1h", "hirid")) == "hirid")
 stopifnot(frequency_output_src("hirid", frequency_spec("5min", "hirid")) == "hirid_5min")
 stopifnot(frequency_output_src("hirid", frequency_spec("15min", "hirid")) == "hirid_15min")
+
+# Arrow must preserve ricu's physical difftime unit when writing dyn.parquet.
+if (requireNamespace("arrow", quietly = TRUE)) {
+  arrow_path <- tempfile("dyn-", fileext = ".parquet")
+  arrow::write_parquet(
+    data.table(
+      stay_id = 1:2,
+      time = as.difftime(c(0, 3600), units = "secs"),
+      value = c(1, 2)
+    ),
+    arrow_path
+  )
+  arrow_field <- arrow::ParquetFileReader$create(arrow_path)$GetSchema()$GetFieldByName("time")
+  arrow_schema_text <- paste(capture.output(print(arrow_field)), collapse = " ")
+  stopifnot(grepl("duration\\[s\\]", arrow_schema_text))
+  unlink(arrow_path)
+}
+
+# This opt-in check exercises the real ricu::load_concepts path. The default
+# synthetic suite cannot run it because the HiRID source is not configured in
+# every test environment.
+if (identical(Sys.getenv("YAIB_TEST_RICU_LOAD_CONCEPTS"), "1")) {
+  real_hr <- ricu::load_concepts("hr", src = "hirid", interval = mins(5))
+  stopifnot(ricu::is_ts_tbl(real_hr))
+  stopifnot(units(index_col(real_hr)) == units(mins(5)))
+}
 
 cat("frequency tests passed\n")

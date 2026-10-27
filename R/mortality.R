@@ -19,6 +19,12 @@ frequency <- frequency_spec(argv$frequency, src)
 conf <- yaml.load_file("../config.yaml")
 path <- file.path(conf$out_dir, "mortality24")
 base_path <- file.path(conf$out_dir, "base", src, "sta.parquet")
+provenance <- canonical_hourly_provenance(
+  src,
+  "../config.yaml",
+  conf$ricu_data_path,
+  canonical_provenance_files()
+)
 if (!file.exists(base_path)) {
   stop(
     "Canonical hourly base cohort not found at ", base_path, ". ",
@@ -26,6 +32,9 @@ if (!file.exists(base_path)) {
     src, " --frequency 1h",
     call. = FALSE
   )
+}
+if (frequency$label != "1h") {
+  validate_canonical_provenance(file.path(conf$out_dir, "base", src), provenance)
 }
 
 source(".load_ricu.R")

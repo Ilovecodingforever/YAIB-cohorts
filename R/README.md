@@ -89,6 +89,12 @@ directory. The 5-minute and 15-minute base commands reuse the hourly
 `sta.parquet` and `attrition.csv` eligibility outputs and only extract the
 requested-resolution dynamic data.
 
+The hourly base directory also contains `cohort_provenance.json`. Non-hourly
+base and mortality commands verify this metadata, including the configuration,
+pipeline source, ricu version, and canonical hourly eligibility marker, before
+reusing the hourly cohort. If it is missing or incompatible, regenerate the
+hourly base cohort first.
+
 The existing `ricu` aggregation is used: numeric measurements within a bin use
 the default median, and empty bins remain missing (`NA`). No interpolation,
 imputation, or synthetic measurements are added. Base-cohort eligibility keeps
@@ -96,6 +102,11 @@ the original hourly definition across output frequencies; only the dynamic
 measurement grid changes. The synthetic unit tests cover interval conversion,
 grid construction, aggregation, missing bins, labels, and cache isolation, but
 cohort counts and distributions still require a separate real-data validation.
+
+To exercise the real `ricu::load_concepts()` path in an environment with the
+HiRID source configured, set `YAIB_TEST_RICU_LOAD_CONCEPTS=1` when running
+`R/tests/test_frequency.R`. The default test suite intentionally uses synthetic
+tables because the source data is not required for unit tests.
 
 where `mortality.R` should be replaced with the task file of interest and `mimic_demo` with the database of interest (one of `mimic_demo`, `eicu_demo`, `aumc`, `hirid`, `eicu`, `mimic`, `miiv`). Data can be extracted from all datasets simultaneously via `bash gen_cohort.sh mortality`.
 

@@ -21,6 +21,12 @@ path <- file.path(conf$out_dir, "base")
 canonical_dir <- file.path(path, src)
 canonical_sta_path <- file.path(canonical_dir, "sta.parquet")
 canonical_attrition_path <- file.path(canonical_dir, "attrition.csv")
+provenance <- canonical_hourly_provenance(
+  src,
+  "../config.yaml",
+  conf$ricu_data_path,
+  canonical_provenance_files()
+)
 if (frequency$label != "1h" &&
     (!file.exists(canonical_sta_path) || !file.exists(canonical_attrition_path))) {
   stop(
@@ -29,6 +35,9 @@ if (frequency$label != "1h" &&
     src, " --frequency 1h",
     call. = FALSE
   )
+}
+if (frequency$label != "1h") {
+  validate_canonical_provenance(canonical_dir, provenance)
 }
 
 source(".load_ricu.R")
@@ -194,5 +203,8 @@ if (!dir.exists(out_path)) {
 arrow::write_parquet(dyn_fmt, paste0(out_path, "/dyn.parquet"))
 arrow::write_parquet(sta_fmt, paste0(out_path, "/sta.parquet"))
 fwrite(attrition, paste0(out_path, "/attrition.csv"))
+if (frequency$label == "1h") {
+  write_canonical_provenance(out_path, provenance)
+}
 
 
