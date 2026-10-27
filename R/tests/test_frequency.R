@@ -160,32 +160,42 @@ stopifnot(
     as.numeric(explicit_patients$end, units = "mins")
 )
 
-# Synthetic ricu-style binning: floor timestamps to the requested interval and
+# Synthetic ricu-style binning: floor timestamps to each requested interval and
 # retain ricu's default median aggregation for numeric values.
-spec <- frequency_spec("5min", "hirid")
-raw <- data.table(
-  stay_id = 1L,
-  time = as.difftime(c(1, 4, 11), units = "mins"),
-  value = c(10, 20, 30)
-)
-raw[, time := as.difftime(
-  ricu:::round_to(as.numeric(time), as.numeric(spec$interval)),
-  units = "mins"
-)]
-observed <- as_ts_tbl(raw, id_vars = "stay_id", index_var = "time", interval = spec$interval)
-aggregated <- stats::aggregate(observed)
-stopifnot(aggregated[time == as.difftime(0, units = "mins"), value] == 15)
-stopifnot(aggregated[time == as.difftime(10, units = "mins"), value] == 30)
+for (spec in specs) {
+  step_minutes <- as.numeric(spec$interval, units = "mins")
+  unit <- units(spec$interval)
+  raw <- data.table(
+    stay_id = 1L,
+    time = as.difftime(c(1, step_minutes - 1, step_minutes + 1), units = "mins"),
+    value = c(10, 20, 30)
+  )
+  raw[, time := as.difftime(
+    ricu:::round_to(as.numeric(time), step_minutes),
+    units = "mins"
+  )]
+  raw[, time := as.difftime(as.numeric(time, units = unit), units = unit)]
+  observed <- as_ts_tbl(raw, id_vars = "stay_id", index_var = "time", interval = spec$interval)
+  aggregated <- stats::aggregate(observed)
+  stopifnot(aggregated[time == as.difftime(0, units = unit), value] == 15)
+  step_time <- as.difftime(step_minutes, units = "mins")
+  step_time <- as.difftime(as.numeric(step_time, units = unit), units = unit)
+  stopifnot(aggregated[time == step_time, value] == 30)
 
-window <- data.table(
-  stay_id = 1L,
-  start = as.difftime(0, units = "mins"),
-  end = as.difftime(15, units = "mins")
-)
-window <- as_win_tbl(window, id_vars = "stay_id", index_var = "start", dur_var = "end", interval = spec$interval)
-grid <- ricu::expand(window, new_index = "time")
-merged <- merge(grid, aggregated, all.x = TRUE)
-stopifnot(is.na(merged[time == as.difftime(5, units = "mins"), value]))
+  end <- as.difftime(2 * step_minutes, units = "mins")
+  end <- as.difftime(as.numeric(end, units = unit), units = unit)
+  window <- data.table(
+    stay_id = 1L,
+    start = as.difftime(0, units = unit),
+    end = end
+  )
+  window <- as_win_tbl(window, id_vars = "stay_id", index_var = "start", dur_var = "end", interval = spec$interval)
+  grid <- ricu::expand(window, new_index = "time")
+  merged <- merge(grid, aggregated, all.x = TRUE)
+  end_time <- as.difftime(2 * step_minutes, units = "mins")
+  end_time <- as.difftime(as.numeric(end_time, units = unit), units = unit)
+  stopifnot(is.na(merged[time == end_time, value]))
+}
 
 # Mortality is evaluated once on the canonical hourly grid, then reused for
 # every requested output grid.
@@ -328,6 +338,26 @@ stopifnot(step_cache_key("hirid", "hr", mins(5)) != step_cache_key("hirid", "hr"
 stopifnot(step_cache_key("hirid", "hr", mins(5)) != step_cache_key("mimic", "hr", mins(5)))
 stopifnot(step_cache_key("hirid", "hr", mins(5)) != step_cache_key("hirid", "temp", mins(5)))
 stopifnot(step_cache_key("hirid", "hr", hours(1)) == step_cache_key("hirid", "hr", mins(60)))
+
+# Exercise load_step.cncpt() retrieval and miss-then-hit behavior without
+# invoking a source loader or touching patient data.
+src <- "hirid"
+cncpt_env <- new.env()
+synthetic_concept <- structure(list(name = "hr"), class = c("cncpt", "num_cncpt"))
+assign(step_cache_key(src, "hr", mins(5)), list(value = "five"), cncpt_env)
+assign(step_cache_key(src, "hr", mins(15)), list(value = "fifteen"), cncpt_env)
+stopifnot(load_step.cncpt(synthetic_concept, interval = mins(5))$value == "five")
+stopifnot(load_step.cncpt(synthetic_concept, interval = mins(15))$value == "fifteen")
+
+load_calls <- 0L
+load_concepts <- function(...) {
+  load_calls <<- load_calls + 1L
+  list(value = "fresh")
+}
+fresh <- load_step.cncpt(synthetic_concept, interval = mins(1), cache = TRUE)
+fresh_again <- load_step.cncpt(synthetic_concept, interval = mins(1), cache = TRUE)
+stopifnot(fresh$value == "fresh", fresh_again$value == "fresh", load_calls == 1L)
+rm(load_concepts)
 
 stopifnot(frequency_output_src("hirid", frequency_spec("1h", "hirid")) == "hirid")
 stopifnot(frequency_output_src("hirid", frequency_spec("5min", "hirid")) == "hirid_5min")

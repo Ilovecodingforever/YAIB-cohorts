@@ -16,13 +16,26 @@ argv <- parse_args(p)
 src <- argv$src 
 frequency <- frequency_spec(argv$frequency, src)
 
+conf <- yaml.load_file("../config.yaml")
+path <- file.path(conf$out_dir, "base")
+canonical_dir <- file.path(path, src)
+canonical_sta_path <- file.path(canonical_dir, "sta.parquet")
+canonical_attrition_path <- file.path(canonical_dir, "attrition.csv")
+if (frequency$label != "1h" &&
+    (!file.exists(canonical_sta_path) || !file.exists(canonical_attrition_path))) {
+  stop(
+    "Canonical hourly base cohort not found under ", canonical_dir, ". ",
+    "Generate it first with: cd R && Rscript base_cohort.R --src ",
+    src, " --frequency 1h",
+    call. = FALSE
+  )
+}
+
 source(".load_ricu.R")
 source("src/misc.R")
 source("src/steps.R")
 source("src/sequential.R")
 source("src/obs_time.R")
-conf <- yaml.load_file("../config.yaml")
-path <- file.path(conf$out_dir, "base")
 
 
 cncpt_env <- new.env()
@@ -64,87 +77,88 @@ patients <- as_win_tbl(patients, index_var = "start", dur_var = "end", interval 
 
 stop_obs_at(patients, offset = frequency_offset(max_len, interval), by_ref = TRUE)
 
-# Eligibility remains defined on the original hourly grid. The selected grid
-# below only changes the temporal representation written to disk.
-eligibility_interval <- hours(1)
-eligibility_patients <- stay_windows(src, interval = eligibility_interval)
-eligibility_patients <- as_win_tbl(
-  eligibility_patients,
-  index_var = "start",
-  dur_var = "end",
-  interval = eligibility_interval
-)
-stop_obs_at(
-  eligibility_patients,
-  offset = frequency_offset(max_len, eligibility_interval),
-  by_ref = TRUE,
-  target = eligibility_patients
-)
+if (frequency$label == "1h") {
+  # Eligibility remains defined on the original hourly grid. The selected grid
+  # below only changes the temporal representation written to disk.
+  eligibility_interval <- hours(1)
+  eligibility_patients <- stay_windows(src, interval = eligibility_interval)
+  eligibility_patients <- as_win_tbl(
+    eligibility_patients,
+    index_var = "start",
+    dur_var = "end",
+    interval = eligibility_interval
+  )
+  stop_obs_at(
+    eligibility_patients,
+    offset = frequency_offset(max_len, eligibility_interval),
+    by_ref = TRUE,
+    target = eligibility_patients
+  )
 
+  # Apply exclusion criteria ----------------------------------------------
 
+  # 1. Invalid LoS
+  excl1 <- eligibility_patients[end < 0, id_vars(eligibility_patients), with = FALSE]
 
+  # 2. Stay <6h
+  x <- load_step("los_icu")
+  x <- filter_step(x, ~ . < 6 / 24)
 
-# Apply exclusion criteria ------------------------------------------------
+  excl2 <- unique(x[, id_vars(x), with = FALSE])
 
-# 1. Invalid LoS
-excl1 <- eligibility_patients[end < 0, id_vars(eligibility_patients), with = FALSE]
+  # 3. Less than 4 measurements
+  n_obs_per_row <- function(x, ...) {
+    # TODO: make sure this does not change by reference if a single concept is provided
+    obs <- data_vars(x)
+    x[, n := as.vector(rowSums(!is.na(.SD))), .SDcols = obs]
+    x[, .SD, .SDcols = !c(obs)]
+  }
 
-# 2. Stay <6h
-x <- load_step("los_icu")
-x <- filter_step(x, ~ . < 6 / 24)
+  x <- load_step(dict[dynamic_vars], interval = eligibility_interval, cache = TRUE)
+  x <- summary_step(x, "count", drop_index = TRUE)
+  x <- filter_step(x, ~ . < 4)
 
-excl2 <- unique(x[, id_vars(x), with = FALSE])
+  excl3 <- unique(x[, id_vars(x), with = FALSE])
 
+  # 4. More than 12 hour gaps between measurements
+  map_to_eligibility_grid <- function(x) {
+    grid <- ricu::expand(eligibility_patients)
+    merge(grid, x, all.x = TRUE)
+  }
 
-# 3. Less than 4 measurements
-n_obs_per_row <- function(x, ...) {
-  # TODO: make sure this does not change by reference if a single concept is provided
-  obs <- data_vars(x)
-  x[, n := as.vector(rowSums(!is.na(.SD))), .SDcols = obs]
-  x[, .SD, .SDcols = !c(obs)]
+  longest_rle <- function(x, val) {
+    x <- x[, rle(.SD[[data_var(x)]]), by = c(id_vars(x))]
+    x <- x[values != val, lengths := 0]
+    x[, .(lengths = max(lengths)), , by = c(id_vars(x))]
+  }
+
+  x <- load_step(dict[dynamic_vars], interval = eligibility_interval, cache = TRUE)
+  x <- function_step(x, map_to_eligibility_grid)
+  x <- function_step(x, n_obs_per_row)
+  x <- mutate_step(x, ~ . > 0)
+  x <- function_step(x, longest_rle, val = FALSE)
+  x <- filter_step(x, ~ . > frequency_steps(hours(12), eligibility_interval))
+
+  excl4 <- unique(x[, id_vars(x), with = FALSE])
+
+  # 5. Age < 18
+  x <- load_step("age")
+  x <- filter_step(x, ~ . < 18)
+
+  excl5 <- unique(x[, id_vars(x), with = FALSE])
+
+  # Apply exclusions
+  patients <- exclude(patients, mget(paste0("excl", 1:5)))
+  attrition <- as.data.table(patients[c("incl_n", "excl_n_total", "excl_n")])
+  patients <- patients[['incl']]
+} else {
+  # Non-hourly outputs reuse the canonical hourly eligibility. This avoids
+  # reloading a second seven-day dynamic dataset just to repeat exclusions.
+  canonical_base <- arrow::read_parquet(canonical_sta_path)
+  patients <- patients[id_col(patients) %in% id_col(canonical_base)]
+  attrition <- fread(canonical_attrition_path)
 }
 
-x <- load_step(dict[dynamic_vars], interval = eligibility_interval, cache = TRUE)
-x <- summary_step(x, "count", drop_index = TRUE)
-x <- filter_step(x, ~ . < 4)
-
-excl3 <- unique(x[, id_vars(x), with = FALSE])
-
-
-# 4. More than 12 hour gaps between measurements
-map_to_eligibility_grid <- function(x) {
-  grid <- ricu::expand(eligibility_patients)
-  merge(grid, x, all.x = TRUE)
-}
-
-longest_rle <- function(x, val) {
-  x <- x[, rle(.SD[[data_var(x)]]), by = c(id_vars(x))]
-  x <- x[values != val, lengths := 0]
-  x[, .(lengths = max(lengths)), , by = c(id_vars(x))]
-}
-
-x <- load_step(dict[dynamic_vars], interval = eligibility_interval, cache = TRUE)
-x <- function_step(x, map_to_eligibility_grid)
-x <- function_step(x, n_obs_per_row)
-x <- mutate_step(x, ~ . > 0)
-x <- function_step(x, longest_rle, val = FALSE)
-x <- filter_step(x, ~ . > frequency_steps(hours(12), eligibility_interval))
-
-excl4 <- unique(x[, id_vars(x), with = FALSE])
-
-
-# 5. Age < 18
-x <- load_step("age")
-x <- filter_step(x, ~ . < 18)
-
-excl5 <- unique(x[, id_vars(x), with = FALSE])
-
-
-
-# Apply exclusions
-patients <- exclude(patients, mget(paste0("excl", 1:5)))
-attrition <- as.data.table(patients[c("incl_n", "excl_n_total", "excl_n")])
-patients <- patients[['incl']]
 patient_ids <- patients[, .SD, .SDcols = id_var(patients)]
 
 

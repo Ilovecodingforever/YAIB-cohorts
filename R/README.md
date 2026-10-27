@@ -84,6 +84,11 @@ convention where applicable. Mortality eligibility and per-stay labels are
 computed from the canonical hourly processing and reused for all three output
 frequencies; only dynamic features change resolution.
 
+Generate the hourly HiRID base cohort before generating a non-hourly base
+directory. The 5-minute and 15-minute base commands reuse the hourly
+`sta.parquet` and `attrition.csv` eligibility outputs and only extract the
+requested-resolution dynamic data.
+
 The existing `ricu` aggregation is used: numeric measurements within a bin use
 the default median, and empty bins remain missing (`NA`). No interpolation,
 imputation, or synthetic measurements are added. Base-cohort eligibility keeps
