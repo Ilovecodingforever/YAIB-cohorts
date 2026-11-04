@@ -22,8 +22,12 @@ expect_error <- function(expr, pattern) {
 stopifnot(frequency_spec(src = "hirid")$label == "1h")
 stopifnot(frequency_spec("5min", "hirid")$freq == 5L)
 stopifnot(frequency_spec("15min", "hirid")$freq == 15L)
+stopifnot(frequency_spec("1h", "miiv")$label == "1h")
+stopifnot(frequency_spec("5min", "miiv")$freq == 5L)
+stopifnot(frequency_spec("15min", "miiv")$freq == 15L)
 expect_error(frequency_spec("10min", "hirid"), "5min, 15min, 1h")
-expect_error(frequency_spec("5min", "mimic_demo"), "only for --src hirid")
+expect_error(frequency_spec("10min", "miiv"), "5min, 15min, 1h")
+expect_error(frequency_spec("5min", "mimic_demo"), "only for --src hirid or miiv")
 
 # Canonical hourly provenance must be written and must reject a changed
 # configuration before a finer-resolution cohort can reuse it.
@@ -197,10 +201,10 @@ stopifnot(
 for (spec in specs) {
   step_minutes <- as.numeric(spec$interval, units = "mins")
   synthetic_loader <- local({
-    raw_times <- as.difftime(c(1, step_minutes - 1, step_minutes + 1), units = "mins")
+    raw_times <- as.difftime(c(1, step_minutes - 1, step_minutes + 1, 2 * step_minutes + 1), units = "mins")
     function(x, id_type = "icustay", interval = hours(1), ...) {
       as_ts_tbl(
-        data.table(stay_id = 1L, time = raw_times, val_var = c(10, 20, 30)),
+        data.table(stay_id = 1L, time = raw_times, val_var = c(10, 20, 30, 40)),
         id_vars = "stay_id",
         index_var = "time",
         interval = mins(1)
@@ -223,8 +227,31 @@ for (spec in specs) {
     interval = spec$interval,
     verbose = FALSE
   )
-  stopifnot(identical(as.numeric(aggregated$time, units = "mins"), c(0, step_minutes)))
-  stopifnot(identical(aggregated$value, c(15, 30)))
+  stopifnot(identical(as.numeric(aggregated$time, units = "mins"), c(0, step_minutes, 2 * step_minutes)))
+  stopifnot(identical(aggregated$value, c(15, 30, 40)))
+
+  # Empty bins remain absent from ricu output and become NA only when mapped
+  # onto the requested grid; no forward filling is introduced.
+  unit <- units(spec$interval)
+  empty_end <- as.difftime(3 * step_minutes, units = "mins")
+  empty_end <- as.difftime(as.numeric(empty_end, units = unit), units = unit)
+  empty_window <- as_win_tbl(
+    data.table(
+      stay_id = 1L,
+      start = as.difftime(0, units = unit),
+      end = empty_end
+    ),
+    id_vars = "stay_id",
+    index_var = "start",
+    dur_var = "end",
+    interval = spec$interval
+  )
+  empty_grid <- merge(
+    ricu::expand(empty_window, new_index = "time"),
+    aggregated,
+    all.x = TRUE
+  )
+  stopifnot(anyNA(empty_grid$value))
 }
 
 # Mortality is evaluated once on the canonical hourly grid, then reused for
@@ -264,7 +291,8 @@ canonical_mortality_result <- function() {
     ids = eligible[order(stay_id), stay_id],
     labels = labels,
     cohort = eligible,
-    events = deaths
+    events = deaths,
+    attrition = data.table(incl_n = 3L, excl_n_total = 1L, excl_n = 1L)
   )
 }
 
@@ -337,7 +365,7 @@ build_synthetic_outputs <- function(spec, mortality) {
   sta_fmt <- function_step(sta, map_to_patients)
   rename_cols(sta_fmt, c("stay_id"), id_vars(sta), by_ref = TRUE)
 
-  list(dyn = dyn_fmt, outc = outc_fmt, sta = sta_fmt)
+  list(dyn = dyn_fmt, outc = outc_fmt, sta = sta_fmt, attrition = mortality$attrition)
 }
 
 # Every output frequency reuses the same canonical cohort and labels while its
@@ -354,6 +382,7 @@ for (spec in specs) {
   stopifnot(identical(outputs$outc$stay_id, canonical_result$labels$stay_id))
   stopifnot(identical(outputs$outc$label, canonical_result$labels$label))
   stopifnot(identical(outputs$sta$stay_id, canonical_result$ids))
+  stopifnot(identical(outputs$attrition, canonical_result$attrition))
   if (is.null(hourly_outputs)) {
     hourly_outputs <- outputs[c("outc", "sta")]
   } else {
@@ -395,6 +424,9 @@ rm(load_concepts)
 stopifnot(frequency_output_src("hirid", frequency_spec("1h", "hirid")) == "hirid")
 stopifnot(frequency_output_src("hirid", frequency_spec("5min", "hirid")) == "hirid_5min")
 stopifnot(frequency_output_src("hirid", frequency_spec("15min", "hirid")) == "hirid_15min")
+stopifnot(frequency_output_src("miiv", frequency_spec("1h", "miiv")) == "miiv")
+stopifnot(frequency_output_src("miiv", frequency_spec("5min", "miiv")) == "miiv_5min")
+stopifnot(frequency_output_src("miiv", frequency_spec("15min", "miiv")) == "miiv_15min")
 
 # Arrow must preserve ricu's physical difftime unit and values at every output
 # frequency when writing and reading dyn.parquet.

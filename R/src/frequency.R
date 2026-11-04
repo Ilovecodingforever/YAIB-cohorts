@@ -15,9 +15,9 @@ frequency_spec <- function(frequency = "1h", src = NULL) {
     stop("--frequency must be one of: 5min, 15min, 1h", call. = FALSE)
   }
 
-  if (frequency != "1h" && !identical(src, "hirid")) {
+  if (frequency != "1h" && !src %in% c("hirid", "miiv")) {
     stop(
-      "Non-hourly frequencies are supported only for --src hirid; ",
+      "Non-hourly frequencies are supported only for --src hirid or miiv; ",
       "got --src ", src, " --frequency ", frequency,
       call. = FALSE
     )

@@ -72,11 +72,12 @@ Once [base_cohort.R](base_cohort.R) was run, data for a single task like mortali
 Rscript "mortality.R" --src mimic_demo
 ```
 
-### HiRID temporal resolution
+### HiRID and MIMIC-IV temporal resolution
 
 The base and mortality24 pipelines accept `--frequency` with `5min`, `15min`,
 or `1h`. The default is `1h`, which preserves the existing hourly behavior and
-output paths. Non-hourly frequencies are currently supported only for HiRID.
+output paths. Non-hourly frequencies are supported for HiRID (`hirid`) and
+MIMIC-IV (`miiv`).
 
 ```bash
 Rscript base_cohort.R --src hirid --frequency 5min
@@ -87,6 +88,15 @@ Rscript mortality.R --src hirid --frequency 15min
 
 Rscript base_cohort.R --src hirid --frequency 1h
 Rscript mortality.R --src hirid --frequency 1h
+
+Rscript base_cohort.R --src miiv --frequency 1h
+Rscript mortality.R --src miiv --frequency 1h
+
+Rscript base_cohort.R --src miiv --frequency 15min
+Rscript mortality.R --src miiv --frequency 15min
+
+Rscript base_cohort.R --src miiv --frequency 5min
+Rscript mortality.R --src miiv --frequency 5min
 ```
 
 The hourly outputs remain in `base/hirid/` and `mortality24/hirid/`. The
@@ -98,10 +108,20 @@ convention where applicable. Mortality eligibility and per-stay labels are
 computed from the canonical hourly processing and reused for all three output
 frequencies; only dynamic features change resolution.
 
+For MIMIC-IV, the corresponding directories are `base/miiv/`,
+`base/miiv_15min/`, `base/miiv_5min/`, and the matching
+`mortality24/miiv*` directories.
+
 Generate the hourly HiRID base cohort before generating a non-hourly base
 directory. The 5-minute and 15-minute base commands reuse the hourly
 `sta.parquet` and `attrition.csv` eligibility outputs and only extract the
 requested-resolution dynamic data.
+
+The canonical hourly eligibility criteria, patient IDs, mortality24 labels,
+prediction horizon, static features, and attrition are reused for all MIMIC-IV
+frequencies. Only dynamic measurements are loaded and aligned at the requested
+interval. The existing ricu aggregation is retained; cohort generation does
+not forward-fill or otherwise impute empty measurement bins.
 
 The hourly base directory also contains `cohort_provenance.json`. Non-hourly
 base and mortality commands verify this metadata, including the configuration,

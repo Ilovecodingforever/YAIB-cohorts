@@ -3,7 +3,36 @@ out_dir: "/heinz-georgenas/users/mingzhul/Simultaneous-EHR/yaib/data"
 
 
 # TODO
-# check the distribution of data values in hirid and mimic
-# if implement different frequency, check the sample size and positive count. check the number of missing values for different frequencies
+# HiRID 5min → HiRID 1h	Does mismatch hurt even without hospital shift?
+# HiRID 15min → HiRID 1h	Same question at moderate mismatch
+icu-benchmarks --eval -d /heinz-georgenas/users/mingzhul/Simultaneous-EHR/yaib/data/mortality24/hirid -t BinaryClassification -tn Mortality24 -m LSTM -s 0 -l /heinz-georgenas/users/mingzhul/Simultaneous-EHR/yaib/logs -sn hirid_15min -n hirid --source-dir /heinz-georgenas/users/mingzhul/Simultaneous-EHR/yaib/logs/hirid_15min/Mortality24/LSTM/2026-10-27T11-43-55/repetition_0/fold_0
+# HiRID 1h → MIMIC 1h	Existing reference
+# HiRID 5min → MIMIC 5min	Does frequency matching recover transfer performance?
+# HiRID 15min → MIMIC 15min	Tests the matching hypothesis
+# GRU-D: 5min, 15min, 1h -> MIMIC
+# LSTM + observation masks
+# To test if GRU-D does well for long sequences due to missingness: use 1-hr hirid and expand to 5mins, and compare
+# Note: current LSTM already includes missingness indicators as an input (additional input channels)
+
+# Heart rate, MAP, Oxygen saturation, Respiratory rate are very frequent in hirid (at least 5mins). if we exclude them and transfer to MIMIC, this might transfer well
+
+# just aggregate all frequencies of hirid and transfer to mimic
 
 
+
+icu-benchmarks --eval -d /heinz-georgenas/users/mingzhul/Simultaneous-EHR/yaib/data/mortality24/miiv \
+-t BinaryClassification -tn Mortality24 -m GRUD -s 0 -l /heinz-georgenas/users/mingzhul/Simultaneous-EHR/yaib/logs \
+-sn hirid_15min -n miiv --source-dir /heinz-georgenas/users/mingzhul/Simultaneous-EHR/yaib/logs/hirid_15min/Mortality24/GRUD/2026-10-31T11-17-17/repetition_0/fold_0
+
+icu-benchmarks --eval -d /heinz-georgenas/users/mingzhul/Simultaneous-EHR/yaib/data/mortality24/miiv \
+-t BinaryClassification -tn Mortality24 -m GRUD -s 0 -l /heinz-georgenas/users/mingzhul/Simultaneous-EHR/yaib/logs \
+-sn hirid_5min -n miiv --source-dir /heinz-georgenas/users/mingzhul/Simultaneous-EHR/yaib/logs/hirid_5min/Mortality24/GRUD/2026-10-28T19-21-50/repetition_0/fold_0
+
+icu-benchmarks --eval -d /heinz-georgenas/users/mingzhul/Simultaneous-EHR/yaib/data/mortality24/miiv \
+-t BinaryClassification -tn Mortality24 -m GRUD -s 0 -l /heinz-georgenas/users/mingzhul/Simultaneous-EHR/yaib/logs \
+-sn hirid -n miiv --source-dir /heinz-georgenas/users/mingzhul/Simultaneous-EHR/yaib/logs/hirid/Mortality24/GRUD/2026-10-29T13-30-50/repetition_0/fold_0
+
+
+icu-benchmarks --train   -d "/heinz-georgenas/users/mingzhul/Simultaneous-EHR/yaib/data/mortality24/miiv"   -n miiv   -t BinaryClassification   -tn Mortality24   -m Transformer   --seed 0   -l "$LOGS" --tune -hp train_common.batch_size=64
+
+-hp train_common.batch_size=512

@@ -27,89 +27,156 @@ def normalize_time(s):
     except (TypeError, ValueError):
         return s
 
+
+def _scalar_equal(left, right):
+    try:
+        result = left == right
+    except (TypeError, ValueError):
+        return False
+    return isinstance(result, (bool, np.bool_)) and bool(result)
+
+
+def _exact_values(left, right):
+    """Return exact equality for already aligned, non-missing Series."""
+    try:
+        values = np.asarray(np.equal(left.to_numpy(), right.to_numpy()), dtype=bool)
+        if values.shape == (len(left),):
+            return values
+    except (TypeError, ValueError):
+        pass
+    return np.fromiter(
+        (_scalar_equal(a, b) for a, b in zip(left.tolist(), right.tolist())),
+        dtype=bool,
+        count=len(left),
+    )
+
+
+def _sort_without_keys(frame):
+    """Sort deterministically without imposing ordering across mixed dtypes."""
+    columns = sorted(frame.columns)
+    sort_frame = frame[columns].apply(lambda column: column.map(lambda value: "<NA>" if pd.isna(value) else repr(value)))
+    order = sort_frame.sort_values(columns, kind="mergesort").index
+    return frame.loc[order].reset_index(drop=True)
+
+
+def _prepare_keyed(frame, keys):
+    frame = frame.copy()
+    if "time" in keys:
+        frame["time"] = normalize_time(frame["time"])
+    return frame
+
+
+def _compare_column(name, left, right, atol, rtol):
+    left = left.reset_index(drop=True)
+    right = right.reset_index(drop=True)
+    missing_left = left.isna().to_numpy()
+    missing_right = right.isna().to_numpy()
+    missing_diff = int(np.count_nonzero(missing_left != missing_right))
+    both = ~(missing_left | missing_right)
+    exact = _exact_values(left[both], right[both])
+    value_diff = int(np.count_nonzero(~exact))
+
+    if missing_diff or value_diff:
+        print(
+            f"DIFF {name}: missing-mask mismatches={missing_diff}, "
+            f"exact value mismatches={value_diff}"
+        )
+
+    if pd.api.types.is_float_dtype(left) or pd.api.types.is_float_dtype(right):
+        x = left[both].to_numpy(dtype=float)
+        y = right[both].to_numpy(dtype=float)
+        finite = np.isfinite(x) & np.isfinite(y)
+        abs_diff = np.abs(x[finite] - y[finite])
+        max_abs = float(abs_diff.max()) if len(abs_diff) else 0.0
+        tolerance_equal = np.isclose(x, y, rtol=rtol, atol=atol, equal_nan=False)
+        if value_diff:
+            print(
+                f"FLOAT {name}: exact mismatches={value_diff}, "
+                f"outside tolerance={int(np.count_nonzero(~tolerance_equal))}, "
+                f"max_abs_diff={max_abs:.17g}"
+            )
+
+    return bool(missing_diff or value_diff)
+
 def compare(old_dir, new_dir, filename, atol, rtol, max_examples):
     old_p, new_p = old_dir / filename, new_dir / filename
     if not old_p.exists() or not new_p.exists():
-        print(f"\n{filename}: MISSING FILE: {[str(p) for p in (old_p,new_p) if not p.exists()]}")
-        return False
-    a, b = read_table(old_p), read_table(new_p)
+        missing = [str(p) for p in (old_p, new_p) if not p.exists()]
+        print(f"\n{filename}: STATUS: NOT RUN (missing: {missing})")
+        return None
+
+    old, new = read_table(old_p).copy(), read_table(new_p).copy()
     print(f"\n=== {filename} ===")
-    print("rows:", len(a), "(original),", len(b), "(modified)")
-    ca, cb = set(a.columns), set(b.columns)
-    print("columns only original:", sorted(ca - cb))
-    print("columns only modified:", sorted(cb - ca))
-    if ca != cb:
-        return False
+    print("rows:", len(old), "(original),", len(new), "(modified)")
+    old_columns, new_columns = set(old.columns), set(new.columns)
+    print("columns only original:", sorted(old_columns - new_columns))
+    print("columns only modified:", sorted(new_columns - old_columns))
+    logical_failed = len(old) != len(new) or old_columns != new_columns
+
     keys = KEYS.get(filename, [])
-    if not keys:
-        # Attrition is usually small and has no ID key.
-        a = a.sort_values(list(a.columns), na_position="last").reset_index(drop=True)
-        b = b.sort_values(list(b.columns), na_position="last").reset_index(drop=True)
-    else:
-        for name, df in (("original", a), ("modified", b)):
-            print(f"{name}: unique stays = {df['stay_id'].nunique()}, duplicate keys = {df.duplicated(keys).sum()}")
-            if filename == "outc.parquet" and "label" in df:
-                print(f"{name}: positives = {int(df['label'].sum())}; rate = {df['label'].mean():.6%}")
-        if a.duplicated(keys).any() or b.duplicated(keys).any():
-            print("FAIL: duplicate keys; cannot safely do 1:1 comparison")
-            return False
-        if "time" in keys:
-            a["time"] = normalize_time(a["time"])
-            b["time"] = normalize_time(b["time"])
-        ka = pd.MultiIndex.from_frame(a[keys])
-        kb = pd.MultiIndex.from_frame(b[keys])
-        missing_in_new = ~ka.isin(kb)
-        missing_in_old = ~kb.isin(ka)
-        print("keys only original:", int(missing_in_new.sum()), "; keys only modified:", int(missing_in_old.sum()))
-        if missing_in_new.any():
-            print("original-only examples:\n", a.loc[missing_in_new, keys].head(max_examples).to_string(index=False))
-        if missing_in_old.any():
-            print("modified-only examples:\n", b.loc[missing_in_old, keys].head(max_examples).to_string(index=False))
-        a = a.set_index(keys).sort_index()
-        b = b.set_index(keys).sort_index()
-        common = a.index.intersection(b.index)
-        a, b = a.loc[common], b.loc[common]
-        if not a.index.equals(b.index):
-            b = b.reindex(a.index)
-    failed = len(read_table(old_p)) != len(read_table(new_p)) or (len(keys)>0 and (missing_in_new.any() or missing_in_old.any()))
-    for col in sorted(set(a.columns) - set(keys)):
-        x,y = a[col], b[col]
-        if pd.api.types.is_timedelta64_dtype(x) or pd.api.types.is_timedelta64_dtype(y):
-            x,y=normalize_time(x),normalize_time(y)
-        missing_diff = int((x.isna() != y.isna()).sum())
-        both = x.notna() & y.notna()
-        if pd.api.types.is_numeric_dtype(x) and pd.api.types.is_numeric_dtype(y):
-            same = np.isclose(x[both].to_numpy(dtype=float),y[both].to_numpy(dtype=float),
-                              rtol=rtol,atol=atol, equal_nan=True)
-        else:
-            same = x[both].astype(str).to_numpy() == y[both].astype(str).to_numpy()
-        value_diff = int((~same).sum())
-        if missing_diff or value_diff:
-            failed = True
-            print(f"DIFF {col}: missing-mask mismatches={missing_diff}, value mismatches={value_diff}")
-            different = (x.isna() != y.isna()).to_numpy()
-            positions = np.flatnonzero(both.to_numpy())
-            different[positions[~same]] = True
-            examples = np.flatnonzero(different)[:max_examples]
-            for i in examples:
-                idx=a.index[i]
-                print(f"  {idx}: original={x.iloc[i]!r}; modified={y.iloc[i]!r}")
-    print("RESULT:", "DIFFERENT" if failed else "MATCH")
-    return not failed
+    if keys and old_columns == new_columns:
+        old, new = _prepare_keyed(old, keys), _prepare_keyed(new, keys)
+        for key in keys:
+            if str(old[key].dtype) != str(new[key].dtype):
+                print(f"TYPE DIFF {key}: original={old[key].dtype}, modified={new[key].dtype}")
+                logical_failed = True
+        for label, frame in (("original", old), ("modified", new)):
+            duplicate_count = int(frame.duplicated(keys).sum())
+            print(f"{label}: unique stays = {frame['stay_id'].nunique()}, duplicate keys = {duplicate_count}")
+            if filename == "outc.parquet" and "label" in frame:
+                print(f"{label}: positives = {int(frame['label'].sum())}; rate = {frame['label'].mean():.6%}")
+            logical_failed |= duplicate_count > 0
+
+        if not old.duplicated(keys).any() and not new.duplicated(keys).any():
+            old_keys = pd.MultiIndex.from_frame(old[keys])
+            new_keys = pd.MultiIndex.from_frame(new[keys])
+            missing_in_new = ~old_keys.isin(new_keys)
+            missing_in_old = ~new_keys.isin(old_keys)
+            print("keys only original:", int(missing_in_new.sum()), "; keys only modified:", int(missing_in_old.sum()))
+            if missing_in_new.any():
+                print("original-only examples:\n", old.loc[missing_in_new, keys].head(max_examples).to_string(index=False))
+            if missing_in_old.any():
+                print("modified-only examples:\n", new.loc[missing_in_old, keys].head(max_examples).to_string(index=False))
+            logical_failed |= bool(missing_in_new.any() or missing_in_old.any())
+            old, new = old.set_index(keys), new.set_index(keys)
+            common = old.index.intersection(new.index).sort_values()
+            old, new = old.loc[common], new.loc[common]
+    elif not keys and old_columns == new_columns:
+        old, new = _sort_without_keys(old), _sort_without_keys(new)
+
+    if old_columns == new_columns and len(old) == len(new):
+        for column in sorted(old_columns - set(keys)):
+            if str(old[column].dtype) != str(new[column].dtype):
+                print(f"TYPE DIFF {column}: original={old[column].dtype}, modified={new[column].dtype}")
+                logical_failed = True
+            logical_failed |= _compare_column(column, old[column], new[column], atol, rtol)
+
+    byte_equal = old_p.read_bytes() == new_p.read_bytes()
+    print("LOGICAL STATUS:", "FAIL" if logical_failed else "PASS")
+    print("BYTE STATUS:", "PASS" if byte_equal else "DIFFERENT")
+    return not logical_failed
 
 def main():
     p = argparse.ArgumentParser()
-    p.add_argument("--original", required=True, type=Path, help="Original mortality24/hirid directory")
-    p.add_argument("--modified", required=True, type=Path, help="Modified mortality24/hirid directory")
-    p.add_argument("--atol", type=float, default=1e-8)
-    p.add_argument("--rtol", type=float, default=1e-6)
+    p.add_argument("--original", required=True, type=Path)
+    p.add_argument("--modified", required=True, type=Path)
+    p.add_argument("--atol", type=float, default=1e-8, help="diagnostic tolerance only")
+    p.add_argument("--rtol", type=float, default=1e-6, help="diagnostic tolerance only")
     p.add_argument("--examples", type=int, default=5)
     p.add_argument("--base", action="store_true", help="Compare base cohort; directories should point to base/hirid")
     args=p.parse_args()
-    names=["dyn.parquet","sta.parquet","attrition.csv"] if args.base else ["dyn.parquet","sta.parquet","outc.parquet","attrition.csv"]
-    status=[compare(args.original,args.modified,n,args.atol,args.rtol,args.examples) for n in names]
-    print("\nOVERALL:", "ALL MATCH" if all(status) else "DIFFERENCES FOUND")
-    raise SystemExit(0 if all(status) else 1)
+    names = ["dyn.parquet", "sta.parquet", "attrition.csv"] if args.base else [
+        "dyn.parquet", "sta.parquet", "outc.parquet", "attrition.csv"
+    ]
+    statuses = [compare(args.original, args.modified, name, args.atol, args.rtol, args.examples) for name in names]
+    if any(status is False for status in statuses):
+        overall, exit_code = "FAIL", 1
+    elif any(status is None for status in statuses):
+        overall, exit_code = "NOT RUN", 2
+    else:
+        overall, exit_code = "PASS", 0
+    print("\nOVERALL:", overall)
+    raise SystemExit(exit_code)
 
 if __name__ == "__main__":
     main()
