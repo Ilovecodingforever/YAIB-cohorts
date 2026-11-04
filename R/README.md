@@ -18,7 +18,7 @@ Rscript setup_env.R
 
 
 
-conda activate /home/mingzhul/projects/Simultaneous-EHR/repos/YAIB/.conda/yaib
+<!-- conda activate /home/mingzhul/projects/Simultaneous-EHR/repos/YAIB/.conda/yaib
 
 conda install -c conda-forge udunits2 pkg-config
 
@@ -27,8 +27,11 @@ export CPATH="$CONDA_PREFIX/include:${CPATH:-}"
 export LIBRARY_PATH="$CONDA_PREFIX/lib:${LIBRARY_PATH:-}"
 export LD_LIBRARY_PATH="$CONDA_PREFIX/lib:${LD_LIBRARY_PATH:-}"
 
+ -->
 
-
+run: 
+RICU_DATA_PATH=/heinz-georgenas/users/mingzhul/Simultaneous-EHR/data/ricu \
+Rscript -e 'library(ricu)'
 
 ### Step 1: Load the datasets into `ricu`
 
@@ -133,7 +136,10 @@ The fingerprint is conservative for the files it covers: edits to any tracked
 ricu extension can require hourly regeneration even when the edit is unrelated
 to this cohort. It does not identify the contents or release/version of raw
 HiRID data stored at the configured path, and it does not fingerprint unrelated
-source files or the YAIB Python environment.
+source files or the YAIB Python environment. The check remains intentionally
+strict for the files it does cover; provenance failures now report the expected
+and recorded values, and the hourly cohort must be regenerated when a covered
+input changes.
 
 The existing `ricu` aggregation is used: numeric measurements within a bin use
 the default median, and empty bins remain missing (`NA`). No interpolation,

@@ -48,7 +48,7 @@ changed_provenance <- canonical_hourly_provenance(
 )
 expect_error(
   validate_canonical_provenance(provenance_dir, changed_provenance),
-  "incompatible"
+  "config_md5"
 )
 writeLines("dataset_version: hirid-v1", provenance_config)
 writeLines("cohort_definition: changed", provenance_script)
@@ -57,21 +57,30 @@ changed_pipeline_provenance <- canonical_hourly_provenance(
 )
 expect_error(
   validate_canonical_provenance(provenance_dir, changed_pipeline_provenance),
-  "incompatible"
+  "pipeline_md5"
 )
-unlink(c(provenance_dir, provenance_config, provenance_script), recursive = TRUE)
+missing_provenance_dir <- tempfile("missing-provenance-")
+dir.create(missing_provenance_dir)
+expect_error(
+  validate_canonical_provenance(missing_provenance_dir, provenance),
+  "missing"
+)
+unlink(c(missing_provenance_dir, provenance_dir, provenance_config, provenance_script), recursive = TRUE)
 
-specs <- list(
-  frequency_spec("1h", "hirid"),
-  frequency_spec("15min", "hirid"),
-  frequency_spec("5min", "hirid")
+frequency_labels <- c("1h", "15min", "5min")
+specs_by_src <- setNames(
+  lapply(c("hirid", "miiv"), function(source) {
+    setNames(lapply(frequency_labels, frequency_spec, src = source), frequency_labels)
+  }),
+  c("hirid", "miiv")
 )
+all_specs <- c(specs_by_src$hirid, specs_by_src$miiv)
 expected_steps <- list(
   `1h` = c(6L, 12L, 24L, 30L, 168L),
   `15min` = c(24L, 48L, 96L, 120L, 672L),
   `5min` = c(72L, 144L, 288L, 360L, 2016L)
 )
-for (spec in specs) {
+for (spec in all_specs) {
   expected <- expected_steps[[spec$label]]
   stopifnot(identical(as.integer(frequency_steps(hours(6), spec$interval)), expected[1]))
   stopifnot(identical(as.integer(frequency_steps(hours(12), spec$interval)), expected[2]))
@@ -81,7 +90,7 @@ for (spec in specs) {
 }
 
 expected_grid_rows <- c(`1h` = 25L, `15min` = 97L, `5min` = 289L)
-for (spec in specs) {
+for (spec in all_specs) {
   unit <- units(spec$interval)
   end <- as.numeric(hours(24), units = unit)
   window <- data.table(
@@ -139,7 +148,7 @@ make_event <- function(spec, event_minutes) {
   result
 }
 
-for (spec in specs) {
+for (spec in all_specs) {
   window <- make_window(spec)
   stop_obs_at(
     make_event(spec, 6 * 60 + 2),
@@ -198,7 +207,7 @@ stopifnot(
 
 # Synthetic production ricu extraction: load_concepts() receives a native
 # one-minute fun_itm, then performs change_interval() and concept aggregation.
-for (spec in specs) {
+for (spec in all_specs) {
   step_minutes <- as.numeric(spec$interval, units = "mins")
   synthetic_loader <- local({
     raw_times <- as.difftime(c(1, step_minutes - 1, step_minutes + 1, 2 * step_minutes + 1), units = "mins")
@@ -371,7 +380,7 @@ build_synthetic_outputs <- function(spec, mortality) {
 # Every output frequency reuses the same canonical cohort and labels while its
 # dynamic window has its own grid and output construction.
 hourly_outputs <- NULL
-for (spec in specs) {
+for (spec in all_specs) {
   outputs <- build_synthetic_outputs(spec, canonical_result)
   stopifnot(nrow(outputs$dyn) == expected_grid_rows[[spec$label]] * length(canonical_result$ids))
   stopifnot(!anyDuplicated(outputs$dyn[, .(stay_id, time)]))
@@ -431,7 +440,7 @@ stopifnot(frequency_output_src("miiv", frequency_spec("15min", "miiv")) == "miiv
 # Arrow must preserve ricu's physical difftime unit and values at every output
 # frequency when writing and reading dyn.parquet.
 if (requireNamespace("arrow", quietly = TRUE)) {
-  for (spec in specs) {
+  for (spec in all_specs) {
     step_minutes <- as.numeric(spec$interval, units = "mins")
     expected_minutes <- c(0, step_minutes, 2 * step_minutes)
     arrow_path <- tempfile("dyn-", fileext = ".parquet")

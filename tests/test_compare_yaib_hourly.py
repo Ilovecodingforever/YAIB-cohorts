@@ -1,6 +1,8 @@
 import importlib.util
+import io
 import tempfile
 import unittest
+from contextlib import redirect_stdout
 from pathlib import Path
 
 import pandas as pd
@@ -27,7 +29,22 @@ class CompareHourlyTest(unittest.TestCase):
             pd.DataFrame({"n": [1, 2], "value": [1.0, 2.0 + 1e-9]}).to_csv(
                 modified / "attrition.csv", index=False
             )
-            self.assertFalse(COMPARE.compare(original, modified, "attrition.csv", 1e-8, 1e-6, 2))
+            output = io.StringIO()
+            with redirect_stdout(output):
+                self.assertFalse(COMPARE.compare(original, modified, "attrition.csv", 1e-8, 1e-6, 2))
+            self.assertIn("floating differences outside tolerance=0", output.getvalue())
+            self.assertIn("column=value", output.getvalue())
+            self.assertIn("original=np.float64(2.0)", output.getvalue())
+
+    def test_streaming_byte_comparison(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            left, right = root / "left.bin", root / "right.bin"
+            left.write_bytes(b"same bytes")
+            right.write_bytes(b"same bytes")
+            self.assertTrue(COMPARE.byte_equal(left, right))
+            right.write_bytes(b"different bytes")
+            self.assertFalse(COMPARE.byte_equal(left, right))
 
     def test_missing_file_is_not_run(self):
         with tempfile.TemporaryDirectory() as temp:

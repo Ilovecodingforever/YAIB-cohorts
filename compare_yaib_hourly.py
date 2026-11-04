@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Compare original and modified YAIB hourly HiRID mortality cohorts."""
 import argparse
+import hashlib
 from pathlib import Path
 import numpy as np
 import pandas as pd
@@ -13,6 +14,20 @@ def read_table(path):
     if path.suffix == ".csv":
         return pd.read_csv(path)
     return pd.read_parquet(path)
+
+
+def sha256_file(path, chunk_size=8 * 1024 * 1024):
+    digest = hashlib.sha256()
+    with path.open("rb") as stream:
+        for chunk in iter(lambda: stream.read(chunk_size), b""):
+            digest.update(chunk)
+    return digest.digest()
+
+
+def byte_equal(left, right):
+    if left.stat().st_size != right.stat().st_size:
+        return False
+    return sha256_file(left) == sha256_file(right)
 
 def normalize_time(s):
     # Preserve time as elapsed physical time in seconds across Arrow/Pandas storage.
@@ -66,7 +81,16 @@ def _prepare_keyed(frame, keys):
     return frame
 
 
-def _compare_column(name, left, right, atol, rtol):
+def _row_context(index, position, keys):
+    if isinstance(index, pd.MultiIndex):
+        return dict(zip(keys, index[position]))
+    if keys:
+        return {keys[0]: index[position]}
+    return {"row": int(position)}
+
+
+def _compare_column(name, left, right, keys, atol, rtol, max_examples):
+    row_index = left.index
     left = left.reset_index(drop=True)
     right = right.reset_index(drop=True)
     missing_left = left.isna().to_numpy()
@@ -76,27 +100,38 @@ def _compare_column(name, left, right, atol, rtol):
     exact = _exact_values(left[both], right[both])
     value_diff = int(np.count_nonzero(~exact))
 
-    if missing_diff or value_diff:
-        print(
-            f"DIFF {name}: missing-mask mismatches={missing_diff}, "
-            f"exact value mismatches={value_diff}"
-        )
-
+    outside_tolerance = 0
+    max_abs_diff = 0.0
     if pd.api.types.is_float_dtype(left) or pd.api.types.is_float_dtype(right):
         x = left[both].to_numpy(dtype=float)
         y = right[both].to_numpy(dtype=float)
         finite = np.isfinite(x) & np.isfinite(y)
         abs_diff = np.abs(x[finite] - y[finite])
-        max_abs = float(abs_diff.max()) if len(abs_diff) else 0.0
+        max_abs_diff = float(abs_diff.max()) if len(abs_diff) else 0.0
+        nonfinite_diff = (~finite) & (x != y)
+        if nonfinite_diff.any():
+            max_abs_diff = float("inf")
         tolerance_equal = np.isclose(x, y, rtol=rtol, atol=atol, equal_nan=False)
-        if value_diff:
+        outside_tolerance = int(np.count_nonzero(~tolerance_equal))
+
+    mismatch = missing_left != missing_right
+    both_positions = np.flatnonzero(both)
+    mismatch[both_positions[~exact]] = True
+    if mismatch.any():
+        print(
+            f"DIFF {name}: missing-mask mismatches={missing_diff}, "
+            f"exact value mismatches={value_diff}, "
+            f"floating differences outside tolerance={outside_tolerance}, "
+            f"max_abs_float_diff={max_abs_diff:.17g}"
+        )
+        for position in np.flatnonzero(mismatch)[:max_examples]:
+            context = _row_context(row_index, position, keys)
             print(
-                f"FLOAT {name}: exact mismatches={value_diff}, "
-                f"outside tolerance={int(np.count_nonzero(~tolerance_equal))}, "
-                f"max_abs_diff={max_abs:.17g}"
+                f"  {context}: column={name}, "
+                f"original={left.iloc[position]!r}, modified={right.iloc[position]!r}"
             )
 
-    return bool(missing_diff or value_diff)
+    return bool(mismatch.any())
 
 def compare(old_dir, new_dir, filename, atol, rtol, max_examples):
     old_p, new_p = old_dir / filename, new_dir / filename
@@ -149,11 +184,11 @@ def compare(old_dir, new_dir, filename, atol, rtol, max_examples):
             if str(old[column].dtype) != str(new[column].dtype):
                 print(f"TYPE DIFF {column}: original={old[column].dtype}, modified={new[column].dtype}")
                 logical_failed = True
-            logical_failed |= _compare_column(column, old[column], new[column], atol, rtol)
+            logical_failed |= _compare_column(column, old[column], new[column], keys, atol, rtol, max_examples)
 
-    byte_equal = old_p.read_bytes() == new_p.read_bytes()
+    bytes_match = byte_equal(old_p, new_p)
     print("LOGICAL STATUS:", "FAIL" if logical_failed else "PASS")
-    print("BYTE STATUS:", "PASS" if byte_equal else "DIFFERENT")
+    print("BYTE STATUS:", "PASS" if bytes_match else "DIFFERENT")
     return not logical_failed
 
 def main():

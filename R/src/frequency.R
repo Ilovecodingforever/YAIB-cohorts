@@ -96,11 +96,12 @@ canonical_hourly_provenance <- function(src, config_path, ricu_data_path, pipeli
     config_md5 = unname(tools::md5sum(normalizePath(config_path, mustWork = TRUE))),
     pipeline_md5 = canonical_file_fingerprint(pipeline_files),
     ricu_data_path = normalizePath(ricu_data_path, mustWork = FALSE),
-    ricu_version = if (requireNamespace("ricu", quietly = TRUE)) {
-      as.character(utils::packageVersion("ricu"))
-    } else {
-      NA_character_
-    }
+    # packageVersion() reads installed metadata without initializing ricu.
+    # Loading ricu here would happen before .load_ricu.R sets RICU_DATA_PATH.
+    ricu_version = tryCatch(
+      as.character(utils::packageVersion("ricu")),
+      error = function(...) NA_character_
+    )
   )
 }
 
@@ -128,6 +129,12 @@ validate_canonical_provenance <- function(directory, expected) {
     )
   }
   actual <- jsonlite::read_json(path, simplifyVector = TRUE)
+  format_value <- function(value) {
+    if (is.null(value) || !length(value)) {
+      return("<missing>")
+    }
+    paste(as.character(value), collapse = ",")
+  }
   fields <- c(
     "schema_version", "source", "cohort", "frequency", "eligibility_frequency",
     "config_md5", "pipeline_md5", "ricu_data_path", "ricu_version"
@@ -136,10 +143,20 @@ validate_canonical_provenance <- function(directory, expected) {
     identical(as.character(actual[[field]]), as.character(expected[[field]]))
   }, logical(1))]
   if (length(mismatched)) {
+    details <- vapply(mismatched, function(field) {
+      paste0(
+        field,
+        " expected=",
+        format_value(expected[[field]]),
+        " actual=",
+        format_value(actual[[field]])
+      )
+    }, character(1))
     stop(
       "Canonical hourly cohort provenance is incompatible (",
       paste(mismatched, collapse = ", "),
-      "). Regenerate the hourly cohort before requesting a finer frequency.",
+      "). Differences: ", paste(details, collapse = "; "),
+      ". Regenerate the hourly cohort before requesting a finer frequency.",
       call. = FALSE
     )
   }
