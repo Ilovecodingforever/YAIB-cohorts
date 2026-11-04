@@ -35,4 +35,4 @@ out_dir: "/heinz-georgenas/users/mingzhul/Simultaneous-EHR/yaib/data"
 icu-benchmarks train   -d "/heinz-georgenas/users/mingzhul/Simultaneous-EHR/yaib/data/mortality24/miiv_15min"   -n miiv_15min   -t BinaryClassification   -tn Mortality24   -m LSTM   --seed 0   -l "$LOGS" --tune
 icu-benchmarks train   -d "/heinz-georgenas/users/mingzhul/Simultaneous-EHR/yaib/data/mortality24/miiv_5min"   -n miiv_5min   -t BinaryClassification   -tn Mortality24   -m LSTM   --seed 0   -l "$LOGS" --tune
 
-# -hp train_common.batch_size=512
+# -hp train_common.batch_size=512]
