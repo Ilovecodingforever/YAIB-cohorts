@@ -1,0 +1,32 @@
+metric,HiRID,HiRID 15min,HiRID 5min,MIMIC-IV,MIMIC-IV 15min,MIMIC-IV 5min
+5th percentile consecutive gap (hours),0.9999999999999991,0.2499999999999999,0.08333333333333215,0.9999999999999991,0.2499999999999999,0.08333333333333215
+5th percentile processed timestamps per stay,25.0,97.0,289.0,25.0,97.0,289.0
+95th percentile consecutive gap (hours),1.0000000000000009,0.2500000000000001,0.0833333333333357,1.0000000000000009,0.2500000000000001,0.0833333333333357
+95th percentile processed timestamps per stay,25.0,97.0,289.0,25.0,97.0,289.0
+Consecutive gaps different from the expected step,0,0,0,0,0,0
+Duplicate rows beyond first occurrence,0,0,0,0,0,0
+Duplicate stay-timestamp pairs,0,0,0,0,0,0
+Expected inclusive timestamp count,25,97,289,25,97,289
+Expected time-step size (hours),1.0,0.25,0.08333333333333333,1.0,0.25,0.08333333333333333
+Gaps larger than the expected step,0,0,0,0,0,0
+Inferred timestamp unit,milliseconds,milliseconds,milliseconds,milliseconds,milliseconds,milliseconds
+Maximum consecutive gap (hours),1.0000000000000018,0.2500000000000018,0.0833333333333357,1.0000000000000018,0.2500000000000018,0.0833333333333357
+Maximum processed timestamps per stay,25,97,289,25,97,289
+Maximum timestamp after normalization (hours),24.0,24.0,24.0,24.0,24.0,24.0
+Maximum unique timestamps per stay,25,97,289,25,97,289
+Maximum within-stay offset (hours),24.0,24.0,24.0,24.0,24.0,24.0
+Mean consecutive gap (hours),1.0,0.25,0.08333333333333333,1.0,0.25,0.08333333333333331
+Mean processed timestamps per stay,25.0,97.0,289.0,25.0,97.0,289.0
+Median consecutive gap (hours),1.0,0.25,0.08333333333333326,1.0,0.25,0.08333333333333326
+Median processed timestamps per stay,25.0,97.0,289.0,25.0,97.0,289.0
+Median raw timestamp gap,3600000.0,900000.0,300000.0,3600000.0,900000.0,300000.0
+Minimum consecutive gap (hours),0.9999999999999982,0.24999999999999822,0.08333333333333215,0.9999999999999982,0.24999999999999822,0.08333333333333215
+Minimum processed timestamps per stay,25,97,289,25,97,289
+Minimum timestamp after normalization (hours),0.0,0.0,0.0,0.0,0.0,0.0
+Minimum unique timestamps per stay,25,97,289,25,97,289
+Minimum within-stay offset (hours),0.0,0.0,0.0,0.0,0.0,0.0
+Observed consecutive timestamp gaps,308616,1234464,3703392,1188552,4754208,14262624
+Stays spanning the expected 0-to-24-hour window,12859,12859,12859,49523,49523,49523
+Stays with incomplete timestamp spans,0,0,0,0,0,0
+Stays with the expected inclusive timestamp count,12859,12859,12859,49523,49523,49523
+Timestamp conversion scale to hours,2.7777777777777776e-07,2.7777777777777776e-07,2.7777777777777776e-07,2.7777777777777776e-07,2.7777777777777776e-07,2.7777777777777776e-07

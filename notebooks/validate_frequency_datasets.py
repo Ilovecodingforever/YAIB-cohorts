@@ -1,14 +1,13 @@
 #!/usr/bin/env python3
-"""Read-only validation of processed YAIB frequency cohorts.
+"""Read-only validation backend for processed YAIB frequency cohorts.
 
-The script intentionally reads only processed parquet/CSV files.  It uses
+The module intentionally reads only processed parquet/CSV files.  It uses
 PyArrow batches for dynamic-variable summaries so the 5-minute base cohorts
 are not loaded into memory as a single table.
 """
 
 from __future__ import annotations
 
-import argparse
 import json
 import math
 import warnings
@@ -16,7 +15,6 @@ from pathlib import Path
 from typing import Any
 
 import numpy as np
-import pandas as pd
 import polars as pl
 import pyarrow.parquet as pq
 
@@ -32,7 +30,8 @@ TIME = "time"
 LABEL = "label"
 TOL = 1e-9
 DEFAULT_ROOT = Path("/heinz-georgenas/users/mingzhul/Simultaneous-EHR/yaib/data")
-DEFAULT_OUT = Path("validation_results/frequency_validation")
+DEFAULT_OUT = Path(__file__).resolve().parent.parent / "validation_results" / "frequency_validation"
+REFERENCE_AGGREGATIONS = {"urine": "sum"}
 
 
 def source_name(prefix: str, frequency: str) -> str:
@@ -111,7 +110,11 @@ def exact_file_comparison(root: Path, cohort: str, prefix: str, frequencies: tup
             base_ids = pl.scan_parquet(base_path).select(STAY).unique().collect().sort(STAY)
         for frequency in frequencies[1:]:
             path = root / cohort / source_name(prefix, frequency) / table
-            check = f"{table} exact hourly-vs-{frequency}"
+            check = (
+                f"dynamic stay IDs identical: 1h vs {frequency}"
+                if table == "dyn.parquet"
+                else f"{table} exact hourly-vs-{frequency}"
+            )
             if not path.exists():
                 rows.append({"cohort": cohort, "source": prefix, "check": check, "status": "NOT RUN", "detail": str(path)})
                 continue
@@ -238,8 +241,36 @@ def _to_numpy(array: Any) -> np.ndarray:
         return np.asarray(array.to_pandas())
 
 
+def _reservoir_samples(
+    path: Path,
+    variables: list[str],
+    sample_size: int = 20_000,
+    seed: int = 42,
+) -> dict[str, np.ndarray]:
+    """Return reproducible observed-value samples without loading a file."""
+    rng = np.random.default_rng(seed)
+    samples = {variable: (np.empty(0, dtype=float), np.empty(0, dtype=float)) for variable in variables}
+    parquet = pq.ParquetFile(path)
+    for batch in parquet.iter_batches(columns=variables, batch_size=250_000):
+        for index, variable in enumerate(variables):
+            values = _to_numpy(batch.column(index)).astype(np.float64, copy=False)
+            values = values[np.isfinite(values)]
+            if not len(values):
+                continue
+            old_values, old_keys = samples[variable]
+            keys = rng.random(len(values))
+            if len(old_values):
+                values = np.concatenate([old_values, values])
+                keys = np.concatenate([old_keys, keys])
+            if len(values) > sample_size:
+                keep = np.argpartition(keys, sample_size - 1)[:sample_size]
+                values = values[keep]
+                keys = keys[keep]
+            samples[variable] = (values, keys)
+    return {variable: values for variable, (values, _) in samples.items()}
+
+
 def measurement_stats(path: Path, variables: list[str], stay_ids: np.ndarray, exposure_hours: float, seed: int = 42) -> tuple[list[dict[str, Any]], dict[str, np.ndarray]]:
-    del seed
     n_stays = len(stay_ids)
     scan = pl.scan_parquet(path)
     length = int(scan.select(pl.len()).collect(engine="streaming").item())
@@ -257,12 +288,7 @@ def measurement_stats(path: Path, variables: list[str], stay_ids: np.ndarray, ex
     for variable in variables:
         per_stay_exprs.append((~missing_expr(variable)).sum().alias(variable))
     per_stay = scan.group_by(STAY).agg(per_stay_exprs).collect(engine="streaming")
-    samples_frame = scan.select(variables).head(100_000).collect(engine="streaming")
-    samples = {}
-    for variable in variables:
-        values = samples_frame.get_column(variable).cast(pl.Float64).drop_nulls().to_numpy()
-        values = values[np.isfinite(values)][:20_000]
-        samples[variable] = values
+    samples = _reservoir_samples(path, variables, seed=seed)
     gap_summary = observed_gap_stats(path, variables)
     rows = []
     for variable in variables:
@@ -356,66 +382,185 @@ def stay_groups(path: Path, variables: list[str]):
         yield current_stay, np.concatenate(current_times), np.concatenate(current_values, axis=0)
 
 
-def aggregation_stats(hourly: Path, fine: Path, variables: list[str], step: float) -> list[dict[str, Any]]:
+def _paired_stay_groups(hourly: Path, fine: Path, variables: list[str]):
+    """Merge stay streams by ID without retaining more than two stays."""
+    hourly_iter = iter(stay_groups(hourly, variables))
+    fine_iter = iter(stay_groups(fine, variables))
+    hourly_group = next(hourly_iter, None)
+    fine_group = next(fine_iter, None)
+    while hourly_group is not None or fine_group is not None:
+        if fine_group is None or (hourly_group is not None and hourly_group[0] < fine_group[0]):
+            yield hourly_group, None
+            hourly_group = next(hourly_iter, None)
+        elif hourly_group is None or fine_group[0] < hourly_group[0]:
+            yield None, fine_group
+            fine_group = next(fine_iter, None)
+        else:
+            yield hourly_group, fine_group
+            hourly_group = next(hourly_iter, None)
+            fine_group = next(fine_iter, None)
+
+
+def aggregation_stats(
+    hourly: Path,
+    fine: Path,
+    variables: list[str],
+    step: float,
+    aggregation: dict[str, str] | None = None,
+) -> list[dict[str, Any]]:
+    """Compare native hourly bins with fine values in their common time window.
+
+    Fine values use the configured diagnostic reference aggregation.  Numeric
+    concepts default to median; configured output concepts can override this
+    (urine uses sum in the ricu concept dictionary).  The reference is not an
+    assertion that every native hourly value must equal the fine aggregate.
+    """
+    aggregation = aggregation or {}
     count = len(variables)
     hour_rows = np.zeros(count, dtype=np.int64)
-    fine_bin_count = np.zeros(count, dtype=np.int64)
+    comparable_bins = np.zeros(count, dtype=np.int64)
     both_observed = np.zeros(count, dtype=np.int64)
+    missing_both = np.zeros(count, dtype=np.int64)
     missing_disagreements = np.zeros(count, dtype=np.int64)
     exact = np.zeros(count, dtype=np.int64)
     different = np.zeros(count, dtype=np.int64)
     abs_sum = np.zeros(count, dtype=np.float64)
     max_abs = np.full(count, np.nan)
-    for hourly_group, fine_group in zip(stay_groups(hourly, variables), stay_groups(fine, variables)):
-        hourly_stay, hourly_times, hourly_values = hourly_group
-        fine_stay, fine_times, fine_values = fine_group
-        if hourly_stay != fine_stay:
-            missing_disagreements += 1
+    extra_fine_rows = np.zeros(count, dtype=np.int64)
+    fine_rows_common = np.zeros(count, dtype=np.int64)
+    fine_rows_unassigned = np.zeros(count, dtype=np.int64)
+    partial_final_bins = np.zeros(count, dtype=np.int64)
+    timestamp_mismatches = np.zeros(count, dtype=np.int64)
+    unmatched_hourly_stays = np.zeros(count, dtype=np.int64)
+    unmatched_fine_stays = np.zeros(count, dtype=np.int64)
+
+    for hourly_group, fine_group in _paired_stay_groups(hourly, fine, variables):
+        if hourly_group is None:
+            unmatched_fine_stays += 1
+            extra_fine_rows += len(fine_group[1])
             continue
-        hour_rows += len(hourly_times)
-        fine_bin_count += len(hourly_times)
-        bins_per_hour = int(round(1.0 / step))
-        complete_hours = len(hourly_times) - 1
-        expected_fine_rows = complete_hours * bins_per_hour + 1
-        if len(fine_times) != expected_fine_rows:
-            missing_disagreements += abs(len(fine_times) - expected_fine_rows)
+        if fine_group is None:
+            unmatched_hourly_stays += 1
             continue
-        fine_matrix = fine_values[:complete_hours * bins_per_hour]
-        fine_matrix = fine_matrix.reshape(complete_hours, bins_per_hour, count)
-        fine_matrix[~np.isfinite(fine_matrix)] = np.nan
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore", RuntimeWarning)
-            fine_medians = np.nanmedian(fine_matrix, axis=1)
-        fine_medians[np.sum(np.isfinite(fine_matrix), axis=1) == 0] = np.nan
-        fine_medians = np.vstack([fine_medians, fine_values[-1]])
-        # The native hourly grid is already one row per hour; retain the
-        # matrix shape so all variables are compared in one vectorized pass.
-        hour_matrix = hourly_values.astype(np.float64, copy=False)
-        hour_matrix[~np.isfinite(hour_matrix)] = np.nan
-        hour_missing = np.isnan(hour_matrix)
-        fine_missing = np.isnan(fine_medians)
+        _, hourly_times, hourly_values = hourly_group
+        _, fine_times, fine_values = fine_group
+        common_start = max(float(hourly_times[0]), float(fine_times[0]))
+        common_end = min(float(hourly_times[-1]), float(fine_times[-1]))
+        outside = (fine_times < common_start - TOL) | (fine_times > common_end + TOL)
+        extra_fine_rows += int(np.sum(outside))
+        if common_start > common_end + TOL:
+            continue
+
+        common_hour_indices = np.flatnonzero(
+            (hourly_times >= common_start - TOL) & (hourly_times <= common_end + TOL)
+        )
+        bin_starts = hourly_times[common_hour_indices]
+        comparable_bins += len(bin_starts)
+        hour_rows += len(bin_starts)
+
+        # Assign each fine timestamp to the hourly bin beginning at the most
+        # recent common hourly timestamp.  Boundary timestamps belong to the
+        # following bin, except for the final common endpoint, which remains
+        # its own endpoint bin.  The matrix is bounded by one stay and one
+        # hourly bin, so 5-minute base cohorts do not require a global table.
+        in_common = (fine_times >= common_start - TOL) & (fine_times <= common_end + TOL)
+        common_times = fine_times[in_common]
+        common_values = fine_values[in_common].astype(np.float64, copy=False)
+        bin_indices = np.searchsorted(bin_starts, common_times, side="right") - 1
+        assigned = (bin_indices >= 0) & (bin_indices < len(bin_starts))
+        fine_rows_common += int(np.sum(in_common))
+        fine_rows_unassigned += int(np.sum(~assigned))
+        bin_indices = bin_indices[assigned]
+        common_values = common_values[assigned]
+        if len(bin_indices):
+            bin_counts = np.bincount(bin_indices, minlength=len(bin_starts))
+            max_bin_count = int(bin_counts.max())
+            fine_matrix = np.full((len(bin_starts), max_bin_count, count), np.nan)
+            bin_offsets = np.cumsum(bin_counts) - bin_counts
+            offsets = np.arange(len(bin_indices), dtype=np.int64) - np.repeat(bin_offsets, bin_counts)
+            fine_matrix[bin_indices, offsets, :] = common_values
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore", RuntimeWarning)
+                fine_aggregated = np.nanmedian(fine_matrix, axis=1)
+            fine_aggregated[np.sum(np.isfinite(fine_matrix), axis=1) == 0] = np.nan
+            methods = [aggregation.get(variable, "median") for variable in variables]
+            for index, method in enumerate(methods):
+                if method == "median":
+                    continue
+                finite = np.isfinite(fine_matrix[:, :, index])
+                values = np.where(finite, fine_matrix[:, :, index], 0.0)
+                if method == "sum":
+                    aggregate = values.sum(axis=1)
+                elif method == "mean":
+                    aggregate = values.sum(axis=1) / np.maximum(finite.sum(axis=1), 1)
+                elif method == "max":
+                    aggregate = np.where(finite, fine_matrix[:, :, index], -np.inf).max(axis=1)
+                elif method == "min":
+                    aggregate = np.where(finite, fine_matrix[:, :, index], np.inf).min(axis=1)
+                else:
+                    raise ValueError(f"Unsupported diagnostic aggregation: {method}")
+                aggregate[~finite.any(axis=1)] = np.nan
+                fine_aggregated[:, index] = aggregate
+        else:
+            fine_aggregated = np.full((len(bin_starts), count), np.nan)
+
+        next_boundaries = np.empty(len(bin_starts), dtype=float)
+        for index, position in enumerate(common_hour_indices.tolist()):
+            next_boundaries[index] = (
+                float(hourly_times[position + 1])
+                if position + 1 < len(hourly_times)
+                else float(hourly_times[position]) + 1.0
+            )
+        if (
+            len(bin_starts)
+            and abs(float(bin_starts[-1]) - common_end) > TOL
+            and common_end < next_boundaries[-1] - TOL
+        ):
+            partial_final_bins += 1
+
+        fine_indices = np.searchsorted(fine_times, bin_starts, side="left")
+        found = (fine_indices < len(fine_times)) & (
+            np.abs(fine_times[np.minimum(fine_indices, len(fine_times) - 1)] - bin_starts) <= TOL
+        ) if len(fine_times) else np.zeros(len(bin_starts), dtype=bool)
+        timestamp_mismatches += int(np.sum(~found))
+
+        hour_matrix = hourly_values[common_hour_indices].astype(np.float64, copy=False)
+        hour_missing = ~np.isfinite(hour_matrix)
+        fine_missing = ~np.isfinite(fine_aggregated)
+        missing_both += np.sum(hour_missing & fine_missing, axis=0)
         missing_disagreements += np.sum(hour_missing ^ fine_missing, axis=0)
         both = ~hour_missing & ~fine_missing
         both_observed += np.sum(both, axis=0)
-        differences = np.abs(hour_matrix - fine_medians)
+        differences = np.abs(hour_matrix - fine_aggregated)
         differences[~both] = 0.0
         abs_sum += differences.sum(axis=0)
         changed = both & (differences > TOL)
         different += np.sum(changed, axis=0)
-        exact += np.sum((hour_missing & fine_missing) | (both & ~changed), axis=0)
+        exact += np.sum(both & ~changed, axis=0)
         max_abs = np.fmax(max_abs, differences.max(axis=0))
     rows = []
     for index, variable in enumerate(variables):
         rows.append({
             "variable": variable,
             "hour_rows": int(hour_rows[index]),
-            "fine_hour_bins": int(fine_bin_count[index]),
+            "comparable_hourly_bins": int(comparable_bins[index]),
+            "fine_hour_bins": int(comparable_bins[index]),
+            "fine_rows_in_common_window": int(fine_rows_common[index]),
+            "fine_rows_unassigned_to_hourly_bins": int(fine_rows_unassigned[index]),
+            "extra_fine_rows_outside_common_window": int(extra_fine_rows[index]),
+            "partial_final_hour_bins": int(partial_final_bins[index]),
+            "hourly_timestamps_missing_in_fine": int(timestamp_mismatches[index]),
+            "unmatched_hourly_stays": int(unmatched_hourly_stays[index]),
+            "unmatched_fine_stays": int(unmatched_fine_stays[index]),
             "both_observed": int(both_observed[index]),
+            "missing_both": int(missing_both[index]),
             "missingness_disagreements": int(missing_disagreements[index]),
             "exact_matches": int(exact[index]),
             "numeric_differences": int(different[index]),
+            "difference_fraction_of_observed": float(different[index] / both_observed[index]) if both_observed[index] else None,
             "max_abs_difference": None if np.isnan(max_abs[index]) else float(max_abs[index]),
             "mean_abs_difference": float(abs_sum[index] / both_observed[index]) if both_observed[index] else None,
+            "fine_reference_aggregation": aggregation.get(variable, "median"),
         })
     return rows
 
@@ -442,13 +587,24 @@ def save_figures(out: Path, stats: pl.DataFrame, samples: dict[tuple[str, str, s
             plt.close(fig)
 
             core = [v for v in variables if v in {"hr", "sbp", "dbp", "map", "resp", "temp", "o2sat", "glu", "crea", "lact"}]
+            common_bins = {}
+            for variable in core:
+                all_values = np.concatenate([
+                    samples.get((source, cohort, frequency), {}).get(variable, np.array([], dtype=float))
+                    for frequency in freqs
+                ])
+                all_values = all_values[np.isfinite(all_values)]
+                if not len(all_values):
+                    continue
+                low, high = float(all_values.min()), float(all_values.max())
+                common_bins[variable] = np.linspace(low - 0.5, high + 0.5, 31) if low == high else np.histogram_bin_edges(all_values, bins=30)
             fig, axes = plt.subplots(2, 5, figsize=(15, 6), squeeze=False)
             for ax, variable in zip(axes.flat, core):
                 for frequency in freqs:
                     values = samples.get((source, cohort, frequency), {}).get(variable, np.array([]))
                     values = values[np.isfinite(values)]
-                    if len(values):
-                        ax.hist(values, bins=30, density=True, alpha=0.35, label=frequency)
+                    if len(values) and variable in common_bins:
+                        ax.hist(values, bins=common_bins[variable], density=True, alpha=0.35, label=frequency)
                 ax.set_title(variable)
             axes[0, 0].legend(fontsize=8)
             fig.suptitle(f"{source} {cohort}: sampled processed-value distributions")
@@ -469,17 +625,59 @@ def save_figures(out: Path, stats: pl.DataFrame, samples: dict[tuple[str, str, s
             plt.close(fig)
 
 
-def main() -> int:
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--data-root", type=Path, default=DEFAULT_ROOT)
-    parser.add_argument("--output-dir", type=Path, default=DEFAULT_OUT)
-    args = parser.parse_args()
-    out = args.output_dir
-    out.mkdir(parents=True, exist_ok=True)
+def aggregation_report(root: Path) -> pl.DataFrame:
+    """Build only the fine-to-hour report from processed dynamic tables."""
+    aggregation_rows: list[dict[str, Any]] = []
+    for source, config in SOURCES.items():
+        prefix = config["prefix"]
+        for cohort in COHORTS:
+            available = [
+                frequency
+                for frequency in config["frequencies"]
+                if all(
+                    path.exists()
+                    for path in (
+                        path_for(root, cohort, prefix, frequency, "dyn.parquet"),
+                        path_for(root, cohort, prefix, frequency, "sta.parquet"),
+                    )
+                )
+            ]
+            if len(available) != 3:
+                continue
+            hourly = path_for(root, cohort, prefix, "1h", "dyn.parquet")
+            variables = [c for c in dynamic_schema(hourly) if c not in {STAY, TIME}]
+            for frequency in available[1:]:
+                fine = path_for(root, cohort, prefix, frequency, "dyn.parquet")
+                for row in aggregation_stats(
+                    hourly,
+                    fine,
+                    variables,
+                    FREQUENCY_STEPS[frequency],
+                    aggregation=REFERENCE_AGGREGATIONS,
+                ):
+                    aggregation_rows.append({"source": source, "cohort": cohort, "frequency": frequency, **row})
+    return pl.DataFrame(aggregation_rows)
+
+
+def run_validation(
+    data_root: Path = DEFAULT_ROOT,
+    output_dir: Path = DEFAULT_OUT,
+    write_outputs: bool = True,
+    make_figures: bool = True,
+) -> dict[str, pl.DataFrame | dict[tuple[str, str, str], dict[str, np.ndarray]]]:
+    """Run the frequency validation and return report tables for notebook use.
+
+    The dynamic tables are processed one dataset/frequency at a time.  When
+    ``write_outputs`` is true, the returned tables and optional lightweight
+    figures are also written below ``output_dir``.
+    """
+    out = Path(output_dir)
+    root = Path(data_root)
+    if write_outputs:
+        out.mkdir(parents=True, exist_ok=True)
     result_rows: list[dict[str, Any]] = []
     grid_rows: list[dict[str, Any]] = []
     stats_rows: list[dict[str, Any]] = []
-    aggregation_rows: list[dict[str, Any]] = []
     samples: dict[tuple[str, str, str], dict[str, np.ndarray]] = {}
 
     for source, config in SOURCES.items():
@@ -487,7 +685,7 @@ def main() -> int:
         for cohort, max_hours in COHORTS.items():
             available = []
             for frequency in config["frequencies"]:
-                directory = args.data_root / cohort / source_name(prefix, frequency)
+                directory = root / cohort / source_name(prefix, frequency)
                 required = [directory / "dyn.parquet", directory / "sta.parquet", directory / "attrition.csv"]
                 if cohort == "mortality24":
                     required.append(directory / "outc.parquet")
@@ -497,11 +695,11 @@ def main() -> int:
                     result_rows.append({"cohort": cohort, "source": source, "check": f"files {frequency}", "status": "NOT RUN", "detail": ", ".join(str(p) for p in required if not p.exists())})
             if len(available) != 3:
                 continue
-            prefix_rows = exact_file_comparison(args.data_root, cohort, prefix, tuple(available))
+            prefix_rows = exact_file_comparison(root, cohort, prefix, tuple(available))
             result_rows.extend(prefix_rows)
             for frequency in available:
-                dyn = path_for(args.data_root, cohort, prefix, frequency, "dyn.parquet")
-                sta = path_for(args.data_root, cohort, prefix, frequency, "sta.parquet")
+                dyn = path_for(root, cohort, prefix, frequency, "dyn.parquet")
+                sta = path_for(root, cohort, prefix, frequency, "sta.parquet")
                 schema = dynamic_schema(dyn)
                 variables = [column for column in schema if column not in {STAY, TIME}]
                 stay_ids = np.asarray(pl.read_parquet(sta, columns=[STAY]).get_column(STAY).unique().sort().to_list(), dtype=np.int64)
@@ -515,26 +713,27 @@ def main() -> int:
                     row.update({"source": source, "cohort": cohort, "frequency": frequency})
                     stats_rows.append(row)
                 samples[(source, cohort, frequency)] = {key: np.asarray(value, dtype=float) for key, value in sample.items()}
-            hourly = path_for(args.data_root, cohort, prefix, "1h", "dyn.parquet")
-            variables = [c for c in dynamic_schema(hourly) if c not in {STAY, TIME}]
-            for frequency in available[1:]:
-                fine = path_for(args.data_root, cohort, prefix, frequency, "dyn.parquet")
-                for row in aggregation_stats(hourly, fine, variables, FREQUENCY_STEPS[frequency]):
-                    aggregation_rows.append({"source": source, "cohort": cohort, "frequency": frequency, **row})
-
     result = pl.DataFrame(result_rows)
     grids = pl.DataFrame(grid_rows)
     stats = pl.DataFrame(stats_rows)
-    aggregations = pl.DataFrame(aggregation_rows)
-    result.write_csv(out / "validation_checks.csv")
-    grids.write_csv(out / "temporal_grid_summary.csv")
-    stats.write_csv(out / "dynamic_measurement_statistics.csv")
-    aggregations.write_csv(out / "hourly_aggregation_diagnostics.csv")
-    save_figures(out, stats, samples, sorted(stats["variable"].unique().to_list()) if not stats.is_empty() else [])
-    print(result.group_by("status").len().sort("status"))
-    print(f"outputs: {out}")
-    return 1 if result.filter(pl.col("status") == "FAIL").height else 0
+    aggregations = aggregation_report(root)
+    if write_outputs:
+        result.write_csv(out / "validation_checks.csv")
+        grids.write_csv(out / "temporal_grid_summary.csv")
+        stats.write_csv(out / "dynamic_measurement_statistics.csv")
+        aggregations.write_csv(out / "hourly_aggregation_diagnostics.csv")
+        if make_figures:
+            save_figures(
+                out,
+                stats,
+                samples,
+                sorted(stats["variable"].unique().to_list()) if not stats.is_empty() else [],
+            )
 
-
-if __name__ == "__main__":
-    raise SystemExit(main())
+    return {
+        "checks": result,
+        "grid": grids,
+        "measurements": stats,
+        "aggregation": aggregations,
+        "samples": samples,
+    }

@@ -1,0 +1,110 @@
+dataset,check,status,observed,expected,detail
+HiRID,required_table_files,PASS,present,present,""
+HiRID,required_columns,PASS,stay_id/time/label present,stay_id/time/label present,""
+HiRID,binary_labels,PASS,"[0, 1]","{0, 1}",Mortality labels must be encoded as 0/1.
+HiRID,one_label_per_stay,PASS,0,0,""
+HiRID,duplicate_stay_time_pairs,PASS,0,0,""
+HiRID,expected_grid_spacing,PASS,0,0,Checks consecutive processed timestamps against the expected 1-hour step.
+HiRID,complete_timestamp_spans,PASS,0,0,""
+HiRID,observation_window_0_to_24,PASS,0,0,The source task caps the sequential mortality window at 24 hours.
+HiRID,inclusive_expected_timestamp_window,PASS,0,0,WARN means runtime data should be reviewed for endpoint semantics; expected 25 inclusive timestamps at 1-hour spacing.
+HiRID,expected_dynamic_schema,PASS,none,none,Schema differences can reflect hospital-specific source availability.
+HiRID,stay_id_consistency,PASS,0,0,""
+HiRID,nonfinite_dynamic_values,PASS,0,0,""
+HiRID,negative_values_in_nonnegative_variables,PASS,0,0,"This is a broad diagnostic warning, not a clinical plausibility threshold."
+HiRID 15min,required_table_files,PASS,present,present,""
+HiRID 15min,required_columns,PASS,stay_id/time/label present,stay_id/time/label present,""
+HiRID 15min,binary_labels,PASS,"[0, 1]","{0, 1}",Mortality labels must be encoded as 0/1.
+HiRID 15min,one_label_per_stay,PASS,0,0,""
+HiRID 15min,duplicate_stay_time_pairs,PASS,0,0,""
+HiRID 15min,expected_grid_spacing,PASS,0,0,Checks consecutive processed timestamps against the expected 0.25-hour step.
+HiRID 15min,complete_timestamp_spans,PASS,0,0,""
+HiRID 15min,observation_window_0_to_24,PASS,0,0,The source task caps the sequential mortality window at 24 hours.
+HiRID 15min,inclusive_expected_timestamp_window,PASS,0,0,WARN means runtime data should be reviewed for endpoint semantics; expected 97 inclusive timestamps at 0.25-hour spacing.
+HiRID 15min,expected_dynamic_schema,PASS,none,none,Schema differences can reflect hospital-specific source availability.
+HiRID 15min,stay_id_consistency,PASS,0,0,""
+HiRID 15min,nonfinite_dynamic_values,PASS,0,0,""
+HiRID 15min,negative_values_in_nonnegative_variables,PASS,0,0,"This is a broad diagnostic warning, not a clinical plausibility threshold."
+HiRID 5min,required_table_files,PASS,present,present,""
+HiRID 5min,required_columns,PASS,stay_id/time/label present,stay_id/time/label present,""
+HiRID 5min,binary_labels,PASS,"[1, 0]","{0, 1}",Mortality labels must be encoded as 0/1.
+HiRID 5min,one_label_per_stay,PASS,0,0,""
+HiRID 5min,duplicate_stay_time_pairs,PASS,0,0,""
+HiRID 5min,expected_grid_spacing,PASS,0,0,Checks consecutive processed timestamps against the expected 0.0833333-hour step.
+HiRID 5min,complete_timestamp_spans,PASS,0,0,""
+HiRID 5min,observation_window_0_to_24,PASS,0,0,The source task caps the sequential mortality window at 24 hours.
+HiRID 5min,inclusive_expected_timestamp_window,PASS,0,0,WARN means runtime data should be reviewed for endpoint semantics; expected 289 inclusive timestamps at 0.0833333-hour spacing.
+HiRID 5min,expected_dynamic_schema,PASS,none,none,Schema differences can reflect hospital-specific source availability.
+HiRID 5min,stay_id_consistency,PASS,0,0,""
+HiRID 5min,nonfinite_dynamic_values,PASS,0,0,""
+HiRID 5min,negative_values_in_nonnegative_variables,PASS,0,0,"This is a broad diagnostic warning, not a clinical plausibility threshold."
+HiRID 5min,missingness_difference_urine,WARN,94.36701127022906,43.384528400945015,Difference versus MIMIC-IV; hospital differences are expected.
+MIMIC-IV,required_table_files,PASS,present,present,""
+MIMIC-IV,required_columns,PASS,stay_id/time/label present,stay_id/time/label present,""
+MIMIC-IV,binary_labels,PASS,"[1, 0]","{0, 1}",Mortality labels must be encoded as 0/1.
+MIMIC-IV,one_label_per_stay,PASS,0,0,""
+MIMIC-IV,duplicate_stay_time_pairs,PASS,0,0,""
+MIMIC-IV,expected_grid_spacing,PASS,0,0,Checks consecutive processed timestamps against the expected 1-hour step.
+MIMIC-IV,complete_timestamp_spans,PASS,0,0,""
+MIMIC-IV,observation_window_0_to_24,PASS,0,0,The source task caps the sequential mortality window at 24 hours.
+MIMIC-IV,inclusive_expected_timestamp_window,PASS,0,0,WARN means runtime data should be reviewed for endpoint semantics; expected 25 inclusive timestamps at 1-hour spacing.
+MIMIC-IV,expected_dynamic_schema,PASS,none,none,Schema differences can reflect hospital-specific source availability.
+MIMIC-IV,stay_id_consistency,PASS,0,0,""
+MIMIC-IV,nonfinite_dynamic_values,PASS,0,0,""
+MIMIC-IV,negative_values_in_nonnegative_variables,PASS,0,0,"This is a broad diagnostic warning, not a clinical plausibility threshold."
+MIMIC-IV 15min,required_table_files,PASS,present,present,""
+MIMIC-IV 15min,required_columns,PASS,stay_id/time/label present,stay_id/time/label present,""
+MIMIC-IV 15min,binary_labels,PASS,"[0, 1]","{0, 1}",Mortality labels must be encoded as 0/1.
+MIMIC-IV 15min,one_label_per_stay,PASS,0,0,""
+MIMIC-IV 15min,duplicate_stay_time_pairs,PASS,0,0,""
+MIMIC-IV 15min,expected_grid_spacing,PASS,0,0,Checks consecutive processed timestamps against the expected 0.25-hour step.
+MIMIC-IV 15min,complete_timestamp_spans,PASS,0,0,""
+MIMIC-IV 15min,observation_window_0_to_24,PASS,0,0,The source task caps the sequential mortality window at 24 hours.
+MIMIC-IV 15min,inclusive_expected_timestamp_window,PASS,0,0,WARN means runtime data should be reviewed for endpoint semantics; expected 97 inclusive timestamps at 0.25-hour spacing.
+MIMIC-IV 15min,expected_dynamic_schema,PASS,none,none,Schema differences can reflect hospital-specific source availability.
+MIMIC-IV 15min,stay_id_consistency,PASS,0,0,""
+MIMIC-IV 15min,nonfinite_dynamic_values,PASS,0,0,""
+MIMIC-IV 15min,negative_values_in_nonnegative_variables,PASS,0,0,"This is a broad diagnostic warning, not a clinical plausibility threshold."
+MIMIC-IV 15min,missingness_difference_dbp,WARN,73.21925395073121,8.986079788474997,Difference versus HiRID; hospital differences are expected.
+MIMIC-IV 15min,missingness_difference_hr,WARN,72.26183148057208,3.334007310055214,Difference versus HiRID; hospital differences are expected.
+MIMIC-IV 15min,missingness_difference_map,WARN,72.73213258610859,3.706664592892138,Difference versus HiRID; hospital differences are expected.
+MIMIC-IV 15min,missingness_difference_o2sat,WARN,71.98198650174209,3.774788086165332,Difference versus HiRID; hospital differences are expected.
+MIMIC-IV 15min,missingness_difference_sbp,WARN,73.21284226781225,8.97550353837779,Difference versus HiRID; hospital differences are expected.
+MIMIC-IV 5min,required_table_files,PASS,present,present,""
+MIMIC-IV 5min,required_columns,PASS,stay_id/time/label present,stay_id/time/label present,""
+MIMIC-IV 5min,binary_labels,PASS,"[1, 0]","{0, 1}",Mortality labels must be encoded as 0/1.
+MIMIC-IV 5min,one_label_per_stay,PASS,0,0,""
+MIMIC-IV 5min,duplicate_stay_time_pairs,PASS,0,0,""
+MIMIC-IV 5min,expected_grid_spacing,PASS,0,0,Checks consecutive processed timestamps against the expected 0.0833333-hour step.
+MIMIC-IV 5min,complete_timestamp_spans,PASS,0,0,""
+MIMIC-IV 5min,observation_window_0_to_24,PASS,0,0,The source task caps the sequential mortality window at 24 hours.
+MIMIC-IV 5min,inclusive_expected_timestamp_window,PASS,0,0,WARN means runtime data should be reviewed for endpoint semantics; expected 289 inclusive timestamps at 0.0833333-hour spacing.
+MIMIC-IV 5min,expected_dynamic_schema,PASS,none,none,Schema differences can reflect hospital-specific source availability.
+MIMIC-IV 5min,stay_id_consistency,PASS,0,0,""
+MIMIC-IV 5min,nonfinite_dynamic_values,PASS,0,0,""
+MIMIC-IV 5min,negative_values_in_nonnegative_variables,PASS,0,0,"This is a broad diagnostic warning, not a clinical plausibility threshold."
+MIMIC-IV 5min,missingness_difference_dbp,WARN,90.66736108845164,8.986079788474997,Difference versus HiRID; hospital differences are expected.
+MIMIC-IV 5min,missingness_difference_fio2,WARN,98.70753842872072,47.930943308188816,Difference versus HiRID; hospital differences are expected.
+MIMIC-IV 5min,missingness_difference_hr,WARN,90.31695244605858,3.334007310055214,Difference versus HiRID; hospital differences are expected.
+MIMIC-IV 5min,missingness_difference_map,WARN,90.48726232339564,3.706664592892138,Difference versus HiRID; hospital differences are expected.
+MIMIC-IV 5min,missingness_difference_o2sat,WARN,90.14636308584589,3.774788086165332,Difference versus HiRID; hospital differences are expected.
+MIMIC-IV 5min,missingness_difference_resp,WARN,90.24618738194906,23.627653783342407,Difference versus HiRID; hospital differences are expected.
+MIMIC-IV 5min,missingness_difference_sbp,WARN,90.66495054864934,8.97550353837779,Difference versus HiRID; hospital differences are expected.
+HiRID,base_stay_id_sets_identical_across_resolutions,PASS,"HiRID: missing=0, extra=0; HiRID 15min: missing=0, extra=0; HiRID 5min: missing=0, extra=0",Each resolution must have exactly the canonical hourly stay-ID set.,""
+HiRID,mortality24_stay_id_sets_identical_across_resolutions,PASS,"HiRID: missing=0, extra=0; HiRID 15min: missing=0, extra=0; HiRID 5min: missing=0, extra=0",Each resolution must have exactly the canonical hourly stay-ID set.,""
+HiRID,mortality_label_mismatches_across_resolutions,PASS,HiRID: mismatches=0; HiRID 15min: mismatches=0; HiRID 5min: mismatches=0,0,Labels are compared by stay_id against hourly HiRID.
+HiRID,mortality_positive_counts_identical_across_resolutions,PASS,HiRID: 1097; HiRID 15min: 1097; HiRID 5min: 1097,all resolutions equal,""
+HiRID,mortality_negative_counts_identical_across_resolutions,PASS,HiRID: 11762; HiRID 15min: 11762; HiRID 5min: 11762,all resolutions equal,""
+HiRID,static_feature_values_identical_across_resolutions,PASS,HiRID vs HiRID 15min: mismatches=0; HiRID vs HiRID 5min: mismatches=0,0,Mortality24 static feature values are compared by stay_id.
+HiRID,expected_sequence_length_or_shorter,PASS,expected=25; full=12859; shorter=0; longer=0,no sequence longer than 25,Shorter windows are legitimate; sequences longer than the resolution-specific maximum are invalid.
+HiRID 15min,expected_sequence_length_or_shorter,PASS,expected=97; full=12859; shorter=0; longer=0,no sequence longer than 97,Shorter windows are legitimate; sequences longer than the resolution-specific maximum are invalid.
+HiRID 5min,expected_sequence_length_or_shorter,PASS,expected=289; full=12859; shorter=0; longer=0,no sequence longer than 289,Shorter windows are legitimate; sequences longer than the resolution-specific maximum are invalid.
+MIMIC-IV,base_stay_id_sets_identical_across_resolutions,PASS,"MIMIC-IV: missing=0, extra=0; MIMIC-IV 15min: missing=0, extra=0; MIMIC-IV 5min: missing=0, extra=0",Each resolution must have exactly the canonical hourly stay-ID set.,""
+MIMIC-IV,mortality24_stay_id_sets_identical_across_resolutions,PASS,"MIMIC-IV: missing=0, extra=0; MIMIC-IV 15min: missing=0, extra=0; MIMIC-IV 5min: missing=0, extra=0",Each resolution must have exactly the canonical hourly stay-ID set.,""
+MIMIC-IV,mortality_label_mismatches_across_resolutions,PASS,MIMIC-IV: mismatches=0; MIMIC-IV 15min: mismatches=0; MIMIC-IV 5min: mismatches=0,0,Labels are compared by stay_id against hourly MIMIC-IV.
+MIMIC-IV,mortality_positive_counts_identical_across_resolutions,PASS,MIMIC-IV: 3584; MIMIC-IV 15min: 3584; MIMIC-IV 5min: 3584,all resolutions equal,""
+MIMIC-IV,mortality_negative_counts_identical_across_resolutions,PASS,MIMIC-IV: 45939; MIMIC-IV 15min: 45939; MIMIC-IV 5min: 45939,all resolutions equal,""
+MIMIC-IV,static_feature_values_identical_across_resolutions,PASS,MIMIC-IV vs MIMIC-IV 15min: mismatches=0; MIMIC-IV vs MIMIC-IV 5min: mismatches=0,0,Mortality24 static feature values are compared by stay_id.
+MIMIC-IV,expected_sequence_length_or_shorter,PASS,expected=25; full=49523; shorter=0; longer=0,no sequence longer than 25,Shorter windows are legitimate; sequences longer than the resolution-specific maximum are invalid.
+MIMIC-IV 15min,expected_sequence_length_or_shorter,PASS,expected=97; full=49523; shorter=0; longer=0,no sequence longer than 97,Shorter windows are legitimate; sequences longer than the resolution-specific maximum are invalid.
+MIMIC-IV 5min,expected_sequence_length_or_shorter,PASS,expected=289; full=49523; shorter=0; longer=0,no sequence longer than 289,Shorter windows are legitimate; sequences longer than the resolution-specific maximum are invalid.

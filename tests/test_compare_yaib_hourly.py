@@ -34,7 +34,7 @@ class CompareHourlyTest(unittest.TestCase):
                 self.assertFalse(COMPARE.compare(original, modified, "attrition.csv", 1e-8, 1e-6, 2))
             self.assertIn("floating differences outside tolerance=0", output.getvalue())
             self.assertIn("column=value", output.getvalue())
-            self.assertIn("original=2.0", output.getvalue())
+            self.assertIn("original=np.float64(2.0)", output.getvalue())
 
     def test_streaming_byte_comparison(self):
         with tempfile.TemporaryDirectory() as temp:

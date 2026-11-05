@@ -1,0 +1,30 @@
+metric,HiRID,HiRID 15min,HiRID 5min,MIMIC-IV,MIMIC-IV 15min,MIMIC-IV 5min
+Base dynamic table rows,1506256,5973032,17884589,4719995,18759904,56199823
+Base dynamic table unique stays,32338,32338,32338,71962,71962,71962
+Base static table rows,1506256,5973032,17884589,4719995,18759904,56199823
+Base static table unique stays,32338,32338,32338,71962,71962,71962
+Dynamic stays missing from outcome table,0,0,0,0,0,0
+Dynamic variable count,48,48,48,48,48,48
+Dynamic variable names,"alb,alp,alt,ast,be,bicar,bili,bili_dir,bnd,bun,ca,cai,ck,ckmb,cl,crea,crp,dbp,fgn,fio2,glu,hgb,hr,inr_pt,k,lact,lymph,map,mch,mchc,mcv,methb,mg,na,neut,o2sat,pco2,ph,phos,plt,po2,ptt,resp,sbp,temp,tnt,urine,wbc","alb,alp,alt,ast,be,bicar,bili,bili_dir,bnd,bun,ca,cai,ck,ckmb,cl,crea,crp,dbp,fgn,fio2,glu,hgb,hr,inr_pt,k,lact,lymph,map,mch,mchc,mcv,methb,mg,na,neut,o2sat,pco2,ph,phos,plt,po2,ptt,resp,sbp,temp,tnt,urine,wbc","alb,alp,alt,ast,be,bicar,bili,bili_dir,bnd,bun,ca,cai,ck,ckmb,cl,crea,crp,dbp,fgn,fio2,glu,hgb,hr,inr_pt,k,lact,lymph,map,mch,mchc,mcv,methb,mg,na,neut,o2sat,pco2,ph,phos,plt,po2,ptt,resp,sbp,temp,tnt,urine,wbc","alb,alp,alt,ast,be,bicar,bili,bili_dir,bnd,bun,ca,cai,ck,ckmb,cl,crea,crp,dbp,fgn,fio2,glu,hgb,hr,inr_pt,k,lact,lymph,map,mch,mchc,mcv,methb,mg,na,neut,o2sat,pco2,ph,phos,plt,po2,ptt,resp,sbp,temp,tnt,urine,wbc","alb,alp,alt,ast,be,bicar,bili,bili_dir,bnd,bun,ca,cai,ck,ckmb,cl,crea,crp,dbp,fgn,fio2,glu,hgb,hr,inr_pt,k,lact,lymph,map,mch,mchc,mcv,methb,mg,na,neut,o2sat,pco2,ph,phos,plt,po2,ptt,resp,sbp,temp,tnt,urine,wbc","alb,alp,alt,ast,be,bicar,bili,bili_dir,bnd,bun,ca,cai,ck,ckmb,cl,crea,crp,dbp,fgn,fio2,glu,hgb,hr,inr_pt,k,lact,lymph,map,mch,mchc,mcv,methb,mg,na,neut,o2sat,pco2,ph,phos,plt,po2,ptt,resp,sbp,temp,tnt,urine,wbc"
+Entirely empty time bins,7963,56330,202109,32426,3050312,12250233
+Entirely empty time bins (%),2.477019986002022,4.516071618979206,5.4385185500118265,2.619065888577025,63.49880957114377,85.5932586494535
+Mean observed variables per time bin,10.17303056225212,6.8719858448854065,6.048431335773606,8.868944934676817,2.5039505750842417,0.8627390425769104
+Mortality label prevalence,0.08530989968115717,0.08530989968115717,0.08530989968115717,0.0723704137471478,0.0723704137471478,0.0723704137471478
+Mortality24 dynamic table rows,321475,1247323,3716251,1238075,4803731,14312147
+Mortality24 dynamic table unique stays,12859,12859,12859,49523,49523,49523
+Mortality24 outcome table rows,12859,12859,12859,49523,49523,49523
+Mortality24 outcome table unique stays,12859,12859,12859,49523,49523,49523
+Mortality24 static table rows,12859,12859,12859,49523,49523,49523
+Mortality24 static table unique stays,12859,12859,12859,49523,49523,49523
+Negative mortality labels,11762,11762,11762,45939,45939,45939
+Observed label values,"0,1","0,1","0,1","0,1","0,1","0,1"
+Outcome stays missing from dynamic table,0,0,0,0,0,0
+Outcome stays missing from static table,0,0,0,0,0,0
+Patient identifier columns,unavailable,unavailable,unavailable,unavailable,unavailable,unavailable
+Positive mortality labels,1097,1097,1097,3584,3584,3584
+Static stays missing from outcome table,0,0,0,0,0,0
+Static variable count,4,4,4,4,4,4
+Static variable names,"age,sex,height,weight","age,sex,height,weight","age,sex,height,weight","age,sex,height,weight","age,sex,height,weight","age,sex,height,weight"
+Stays with conflicting labels,0,0,0,0,0,0
+Total processed time bins,321475,1247323,3716251,1238075,4803731,14312147
+Unique patient count,"","","","","",""

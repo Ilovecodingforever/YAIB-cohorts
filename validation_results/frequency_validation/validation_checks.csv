@@ -1,6 +1,6 @@
 cohort,source,check,status,detail
-base,hirid,dyn.parquet exact hourly-vs-15min,PASS,exact logical equality
-base,hirid,dyn.parquet exact hourly-vs-5min,PASS,exact logical equality
+base,hirid,dynamic stay IDs identical: 1h vs 15min,PASS,exact logical equality
+base,hirid,dynamic stay IDs identical: 1h vs 5min,PASS,exact logical equality
 base,hirid,sta.parquet exact hourly-vs-15min,PASS,exact logical equality
 base,hirid,sta.parquet exact hourly-vs-5min,PASS,exact logical equality
 base,hirid,attrition.csv exact hourly-vs-15min,PASS,exact logical equality
@@ -11,8 +11,8 @@ base,HiRID,grid 15min,PASS,"{""alignment_max_steps"": 0.0, ""cohort"": ""base"",
 base,HiRID,"duplicate (stay_id,time) 15min",PASS,0
 base,HiRID,grid 5min,PASS,"{""alignment_max_steps"": 2.2737367544323206e-13, ""cohort"": ""base"", ""complete_max_window"": 2270, ""duplicate_timestamp_rows"": 0, ""expected_from_bounds_mismatch"": 0, ""exposure_hours"": 1487687.583333333, ""frequency"": ""5min"", ""gap_max_hours"": 0.08333333333334281, ""gap_mean_hours"": 0.08333333333333333, ""gap_min_hours"": 0.08333333333331439, ""irregular_gaps"": 0, ""max_steps"": 2017, ""max_timestamp_hours"": 168.0, ""min_steps"": 73, ""min_timestamp_hours"": 0.0, ""observed_gaps"": 17852251, ""over_max_window"": 0, ""rows"": 17884589, ""shorter_than_max_window"": 30068, ""source"": ""HiRID"", ""stays"": 32338, ""time_dtype"": ""Duration(time_unit='ms')""}"
 base,HiRID,"duplicate (stay_id,time) 5min",PASS,0
-mortality24,hirid,dyn.parquet exact hourly-vs-15min,PASS,exact logical equality
-mortality24,hirid,dyn.parquet exact hourly-vs-5min,PASS,exact logical equality
+mortality24,hirid,dynamic stay IDs identical: 1h vs 15min,PASS,exact logical equality
+mortality24,hirid,dynamic stay IDs identical: 1h vs 5min,PASS,exact logical equality
 mortality24,hirid,sta.parquet exact hourly-vs-15min,PASS,exact logical equality
 mortality24,hirid,sta.parquet exact hourly-vs-5min,PASS,exact logical equality
 mortality24,hirid,outc.parquet exact hourly-vs-15min,PASS,exact logical equality
@@ -25,8 +25,8 @@ mortality24,HiRID,grid 15min,PASS,"{""alignment_max_steps"": 0.0, ""cohort"": ""
 mortality24,HiRID,"duplicate (stay_id,time) 15min",PASS,0
 mortality24,HiRID,grid 5min,PASS,"{""alignment_max_steps"": 5.684341886080802e-14, ""cohort"": ""mortality24"", ""complete_max_window"": 12859, ""duplicate_timestamp_rows"": 0, ""expected_from_bounds_mismatch"": 0, ""exposure_hours"": 308616.0, ""frequency"": ""5min"", ""gap_max_hours"": 0.0833333333333357, ""gap_mean_hours"": 0.08333333333333333, ""gap_min_hours"": 0.08333333333333215, ""irregular_gaps"": 0, ""max_steps"": 289, ""max_timestamp_hours"": 24.0, ""min_steps"": 289, ""min_timestamp_hours"": 0.0, ""observed_gaps"": 3703392, ""over_max_window"": 0, ""rows"": 3716251, ""shorter_than_max_window"": 0, ""source"": ""HiRID"", ""stays"": 12859, ""time_dtype"": ""Duration(time_unit='ms')""}"
 mortality24,HiRID,"duplicate (stay_id,time) 5min",PASS,0
-base,miiv,dyn.parquet exact hourly-vs-15min,PASS,exact logical equality
-base,miiv,dyn.parquet exact hourly-vs-5min,PASS,exact logical equality
+base,miiv,dynamic stay IDs identical: 1h vs 15min,PASS,exact logical equality
+base,miiv,dynamic stay IDs identical: 1h vs 5min,PASS,exact logical equality
 base,miiv,sta.parquet exact hourly-vs-15min,PASS,exact logical equality
 base,miiv,sta.parquet exact hourly-vs-5min,PASS,exact logical equality
 base,miiv,attrition.csv exact hourly-vs-15min,PASS,exact logical equality
@@ -37,8 +37,8 @@ base,MIMIC-IV,grid 15min,PASS,"{""alignment_max_steps"": 0.0, ""cohort"": ""base
 base,MIMIC-IV,"duplicate (stay_id,time) 15min",PASS,0
 base,MIMIC-IV,grid 5min,PASS,"{""alignment_max_steps"": 2.2737367544323206e-13, ""cohort"": ""base"", ""complete_max_window"": 8027, ""duplicate_timestamp_rows"": 0, ""expected_from_bounds_mismatch"": 0, ""exposure_hours"": 4677321.75, ""frequency"": ""5min"", ""gap_max_hours"": 0.08333333333334281, ""gap_mean_hours"": 0.08333333333333336, ""gap_min_hours"": 0.08333333333331439, ""irregular_gaps"": 0, ""max_steps"": 2017, ""max_timestamp_hours"": 168.0, ""min_steps"": 73, ""min_timestamp_hours"": 0.0, ""observed_gaps"": 56127861, ""over_max_window"": 0, ""rows"": 56199823, ""shorter_than_max_window"": 63935, ""source"": ""MIMIC-IV"", ""stays"": 71962, ""time_dtype"": ""Duration(time_unit='ms')""}"
 base,MIMIC-IV,"duplicate (stay_id,time) 5min",PASS,0
-mortality24,miiv,dyn.parquet exact hourly-vs-15min,PASS,exact logical equality
-mortality24,miiv,dyn.parquet exact hourly-vs-5min,PASS,exact logical equality
+mortality24,miiv,dynamic stay IDs identical: 1h vs 15min,PASS,exact logical equality
+mortality24,miiv,dynamic stay IDs identical: 1h vs 5min,PASS,exact logical equality
 mortality24,miiv,sta.parquet exact hourly-vs-15min,PASS,exact logical equality
 mortality24,miiv,sta.parquet exact hourly-vs-5min,PASS,exact logical equality
 mortality24,miiv,outc.parquet exact hourly-vs-15min,PASS,exact logical equality
