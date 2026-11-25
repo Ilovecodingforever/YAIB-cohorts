@@ -18,10 +18,13 @@ out_dir: "/heinz-georgenas/users/mingzhul/Simultaneous-EHR/yaib/data"
 # just aggregate all frequencies of hirid and transfer to mimic
 
 
+# bug in the code: in transfer learning, we apply the target normalization to target data, instead of using source normalization
 
-# icu-benchmarks --eval -d /heinz-georgenas/users/mingzhul/Simultaneous-EHR/yaib/data/mortality24/miiv \
-# -t BinaryClassification -tn Mortality24 -m GRUD -s 0 -l /heinz-georgenas/users/mingzhul/Simultaneous-EHR/yaib/logs \
-# -sn hirid_15min -n miiv --source-dir /heinz-georgenas/users/mingzhul/Simultaneous-EHR/yaib/logs/hirid_15min/Mortality24/GRUD/2026-10-31T11-17-17/repetition_0/fold_0
+
+
+icu-benchmarks --eval -d /heinz-georgenas/users/mingzhul/Simultaneous-EHR/yaib/data/mortality24/miiv \
+-t BinaryClassification -tn Mortality24 -m GRUD -s 0 -l /heinz-georgenas/users/mingzhul/Simultaneous-EHR/yaib/logs \
+-sn hirid_15min -n miiv --source-dir /heinz-georgenas/users/mingzhul/Simultaneous-EHR/yaib/logs/hirid_15min/Mortality24/GRUD/2026-10-31T11-17-17/repetition_0/fold_0
 
 # icu-benchmarks --eval -d /heinz-georgenas/users/mingzhul/Simultaneous-EHR/yaib/data/mortality24/miiv \
 # -t BinaryClassification -tn Mortality24 -m GRUD -s 0 -l /heinz-georgenas/users/mingzhul/Simultaneous-EHR/yaib/logs \
@@ -32,7 +35,17 @@ out_dir: "/heinz-georgenas/users/mingzhul/Simultaneous-EHR/yaib/data"
 # -sn hirid -n miiv --source-dir /heinz-georgenas/users/mingzhul/Simultaneous-EHR/yaib/logs/hirid/Mortality24/GRUD/2026-10-29T13-30-50/repetition_0/fold_0
 
 
-icu-benchmarks train   -d "/heinz-georgenas/users/mingzhul/Simultaneous-EHR/yaib/data/mortality24/miiv_15min"   -n miiv_15min   -t BinaryClassification   -tn Mortality24   -m LSTM   --seed 0   -l "$LOGS" --tune
+icu-benchmarks train   -d "/heinz-georgenas/users/mingzhul/Simultaneous-EHR/yaib/data/mortality24/miiv_15min"   -n miiv_15min   -t BinaryClassification   -tn Mortality24   -m GRUD   --seed 0   -l "$LOGS" --tune
 icu-benchmarks train   -d "/heinz-georgenas/users/mingzhul/Simultaneous-EHR/yaib/data/mortality24/miiv_5min"   -n miiv_5min   -t BinaryClassification   -tn Mortality24   -m LSTM   --seed 0   -l "$LOGS" --tune
 
 # -hp train_common.batch_size=512]
+
+what positional encoding did transfomer use
+do different hospitals have different reference values for labs, units different?
+
+
+
+missing training:
+lstm, miiv_5min
+grud, miiv_5min, miiv_15min
+

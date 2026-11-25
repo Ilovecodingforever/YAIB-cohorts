@@ -1,7 +1,7 @@
 dataset,check,status,observed,expected,detail
 HiRID,required_table_files,PASS,present,present,""
 HiRID,required_columns,PASS,stay_id/time/label present,stay_id/time/label present,""
-HiRID,binary_labels,PASS,"[0, 1]","{0, 1}",Mortality labels must be encoded as 0/1.
+HiRID,binary_labels,PASS,"[1, 0]","{0, 1}",Mortality labels must be encoded as 0/1.
 HiRID,one_label_per_stay,PASS,0,0,""
 HiRID,duplicate_stay_time_pairs,PASS,0,0,""
 HiRID,expected_grid_spacing,PASS,0,0,Checks consecutive processed timestamps against the expected 1-hour step.
@@ -14,7 +14,7 @@ HiRID,nonfinite_dynamic_values,PASS,0,0,""
 HiRID,negative_values_in_nonnegative_variables,PASS,0,0,"This is a broad diagnostic warning, not a clinical plausibility threshold."
 HiRID 15min,required_table_files,PASS,present,present,""
 HiRID 15min,required_columns,PASS,stay_id/time/label present,stay_id/time/label present,""
-HiRID 15min,binary_labels,PASS,"[0, 1]","{0, 1}",Mortality labels must be encoded as 0/1.
+HiRID 15min,binary_labels,PASS,"[1, 0]","{0, 1}",Mortality labels must be encoded as 0/1.
 HiRID 15min,one_label_per_stay,PASS,0,0,""
 HiRID 15min,duplicate_stay_time_pairs,PASS,0,0,""
 HiRID 15min,expected_grid_spacing,PASS,0,0,Checks consecutive processed timestamps against the expected 0.25-hour step.
@@ -72,7 +72,7 @@ MIMIC-IV 15min,missingness_difference_o2sat,WARN,71.98198650174209,3.77478808616
 MIMIC-IV 15min,missingness_difference_sbp,WARN,73.21284226781225,8.97550353837779,Difference versus HiRID; hospital differences are expected.
 MIMIC-IV 5min,required_table_files,PASS,present,present,""
 MIMIC-IV 5min,required_columns,PASS,stay_id/time/label present,stay_id/time/label present,""
-MIMIC-IV 5min,binary_labels,PASS,"[1, 0]","{0, 1}",Mortality labels must be encoded as 0/1.
+MIMIC-IV 5min,binary_labels,PASS,"[0, 1]","{0, 1}",Mortality labels must be encoded as 0/1.
 MIMIC-IV 5min,one_label_per_stay,PASS,0,0,""
 MIMIC-IV 5min,duplicate_stay_time_pairs,PASS,0,0,""
 MIMIC-IV 5min,expected_grid_spacing,PASS,0,0,Checks consecutive processed timestamps against the expected 0.0833333-hour step.
