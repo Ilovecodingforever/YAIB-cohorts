@@ -157,11 +157,14 @@ load_mortality_metadata <- function(src, dict, event_interval = mins(1L)) {
 landmark_metadata_provenance <- function(
     src, config_path, ricu_data_path, pipeline_files, event_interval
 ) {
+  pipeline_files <- sort(unique(normalizePath(pipeline_files, mustWork = TRUE)))
   list(
     schema_version = 1L,
     source = src,
     extraction = "death_icu plus ICU stay window and HiRID discharge status",
     event_interval_minutes = as.numeric(event_interval, units = "mins"),
+    event_time_policy = "floor_to_event_interval",
+    pipeline_files = pipeline_files,
     config_md5 = unname(tools::md5sum(normalizePath(config_path, mustWork = TRUE))),
     pipeline_md5 = canonical_file_fingerprint(pipeline_files),
     ricu_data_path = normalizePath(ricu_data_path, mustWork = FALSE),
@@ -170,6 +173,38 @@ landmark_metadata_provenance <- function(
       error = function(...) NA_character_
     )
   )
+}
+
+
+landmark_metadata_provenance_files <- function() {
+  c(
+    "mortality_landmark.R",
+    "src/mortality_landmark.R",
+    ".load_ricu.R",
+    "src/frequency.R",
+    "../ricu-extensions/callbacks/callback-icu-mortality.R",
+    "../ricu-extensions/configs/outcomes/concept-dict.json"
+  )
+}
+
+
+validate_landmark_metadata_provenance <- function(path, expected) {
+  if (!file.exists(path)) {
+    stop("Landmark metadata provenance is missing at ", path, call. = FALSE)
+  }
+  recorded <- jsonlite::read_json(path, simplifyVector = FALSE)
+  expected_json <- jsonlite::toJSON(expected, auto_unbox = TRUE, null = "null")
+  recorded_json <- jsonlite::toJSON(recorded, auto_unbox = TRUE, null = "null")
+  if (!identical(recorded_json, expected_json)) {
+    stop(
+      "Existing landmark metadata provenance is incompatible; ",
+      "expected pipeline_md5=", expected$pipeline_md5,
+      ", recorded pipeline_md5=", recorded$pipeline_md5,
+      ". Regenerate source metadata.",
+      call. = FALSE
+    )
+  }
+  invisible(recorded)
 }
 
 
@@ -264,13 +299,35 @@ construct_landmark_labels <- function(
 }
 
 
+landmark_output_tables <- function(dyn, sta, patients, labels) {
+  patient_ids <- patients[, .SD, .SDcols = id_var(patients)]
+
+  map_to_patients <- function(x) {
+    merge(patient_ids, x, all.x = TRUE)
+  }
+
+  dyn_fmt <- function_step(dyn, map_to_grid, patient_windows = patients)
+  dyn_fmt <- filter_step(dyn_fmt, patients)
+  rename_cols(dyn_fmt, c("stay_id", "time"), meta_vars(dyn_fmt), by_ref = TRUE)
+
+  sta_fmt <- function_step(sta, map_to_patients)
+  rename_cols(sta_fmt, c("stay_id"), id_vars(sta_fmt), by_ref = TRUE)
+
+  outc_fmt <- data.table::copy(labels)
+  data.table::setcolorder(outc_fmt, c("stay_id", "label"))
+
+  list(dyn = dyn_fmt, sta = sta_fmt, outc = outc_fmt)
+}
+
+
 landmark_task_provenance <- function(
     src,
     observation_hours,
     prediction_hours,
     frequency,
     base_provenance,
-    unknown_policy
+    unknown_policy,
+    metadata_provenance = NULL
 ) {
   list(
     schema_version = 1L,
@@ -283,6 +340,7 @@ landmark_task_provenance <- function(
     frequency = frequency$label,
     label_interval = "(prediction_start, prediction_end]",
     unknown_policy = unknown_policy,
+    metadata_provenance = metadata_provenance,
     base_provenance = base_provenance
   )
 }
@@ -308,6 +366,9 @@ validate_landmark_outputs <- function(
   if (!all(required$outcome %in% names(outc))) {
     fail("outc.parquet is missing stay_id or label")
   }
+  if (!nrow(outc)) {
+    fail("outc.parquet contains no labeled stays")
+  }
   if (anyNA(dyn$stay_id) || anyNA(dyn$time) || anyNA(sta$stay_id) ||
       anyNA(outc$stay_id)) {
     fail("stay IDs and dynamic timestamps must be non-missing")
@@ -325,7 +386,11 @@ validate_landmark_outputs <- function(
   if (anyDuplicated(dyn[, .(stay_id, time)])) {
     fail("dyn.parquet contains duplicate (stay_id,time) keys")
   }
-  if (any(landmark_as_hours(dyn$time) >= prediction_start_hours)) {
+  dynamic_hours <- landmark_as_hours(dyn$time)
+  if (any(!is.finite(dynamic_hours))) {
+    fail("dynamic timestamps must be finite")
+  }
+  if (any(dynamic_hours >= prediction_start_hours)) {
     fail("dynamic timestamps reach or exceed prediction_start")
   }
 
@@ -338,10 +403,6 @@ validate_landmark_outputs <- function(
   if (!identical(outcome_ids, static_ids)) {
     fail("outcome and static stay IDs do not match")
   }
-  if (any(table(as.character(dyn$stay_id)) < 1L)) {
-    fail("an eligible stay has no dynamic timestep")
-  }
-
   forbidden <- c(
     "death_time_hours", "outcome_status", "event_time_kind", "icu_end_kind",
     "icu_start_hours", "icu_end_hours", "event_time_precision_minutes",

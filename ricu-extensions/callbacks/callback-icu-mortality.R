@@ -50,7 +50,13 @@ mimic_death_icu <- function(x, env, ...){
 
 miiv_death_icu <- function(x, env, ...){
   icu_wards <- sort(unique(env[["icustays"]]$first_careunit))
-  transfers <- load_ts(env[["transfers"]], index_var = "intime")
+  transfers <- load_ts(
+    env[["transfers"]],
+    id_var = "hadm_id",
+    index_var = "intime",
+    interval = mins(1L)
+  )
+  transfers <- change_id(transfers, "icustay", as_src_cfg(env), id_type = TRUE)
   rename_cols(transfers, "ward", "careunit", by_ref = TRUE)
   mi_death_icu(x, transfers, icu_wards, ...)
 }

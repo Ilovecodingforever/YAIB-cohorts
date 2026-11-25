@@ -98,7 +98,22 @@ The task writes W/H-specific directories such as
 source-level `outcome_metadata.parquet` stores timing metadata separately and
 is never passed to YAIB as a predictor. HiRID event times are explicitly
 marked as last-MAP/heart-rate proxies; they are not recorded clinical death
-timestamps.
+timestamps. Outcome metadata is cached once per source under
+`mortality_metadata/{hirid,miiv}/` and guarded by provenance for the source
+configuration, ricu version, extraction code, mortality callback, and outcome
+concept dictionary.
+
+For MIMIC-IV, the mortality callback starts from hospital admission death
+events, maps hospital transfers from `hadm_id` to ICU `stay_id`, and retains a
+death only when the final care unit is an ICU. The landmark label layer excludes
+events outside the selected ICU stay, so hospital death after ICU discharge is
+not silently assigned to that stay. The existing base-cohort selection still
+determines which stays are available to the task.
+
+The mortality event extraction interval is one minute. ricu floors timestamps to
+that interval; therefore events within the same minute as a landmark boundary
+cannot be distinguished. HiRID timestamps remain proxy event times, and neither
+dataset should be interpreted as providing sub-minute clinical death precision.
 
 ### HiRID and MIMIC-IV temporal resolution
 

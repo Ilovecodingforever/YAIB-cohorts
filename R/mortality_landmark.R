@@ -90,12 +90,12 @@ metadata_provenance <- landmark_metadata_provenance(
   src,
   "../config.yaml",
   conf$ricu_data_path,
-  canonical_provenance_files(),
+  landmark_metadata_provenance_files(),
   metadata_interval
 )
 provenance <- landmark_task_provenance(
   src, observation_hours, prediction_hours, frequency,
-  base_provenance, "exclude"
+  base_provenance, "exclude", metadata_provenance
 )
 
 metadata_exists <- file.exists(metadata_path)
@@ -107,16 +107,10 @@ if (xor(metadata_exists, metadata_provenance_exists)) {
   )
 }
 if (metadata_exists && metadata_provenance_exists) {
-  recorded <- jsonlite::read_json(
-    metadata_provenance_path, simplifyVector = FALSE
+  validate_landmark_metadata_provenance(
+    metadata_provenance_path,
+    metadata_provenance
   )
-  expected <- jsonlite::toJSON(
-    metadata_provenance, auto_unbox = TRUE, null = "null"
-  )
-  actual <- jsonlite::toJSON(recorded, auto_unbox = TRUE, null = "null")
-  if (!identical(actual, expected)) {
-    stop("Existing landmark metadata provenance is incompatible; remove the task directory and regenerate.")
-  }
   metadata <- arrow::read_parquet(metadata_path)
   metadata <- as.data.table(metadata)
 } else {
@@ -155,24 +149,13 @@ stop_obs_at(
 )
 patients <- patients[id_col(patients) %in% eligible_ids]
 
-patient_ids <- patients[, .SD, .SDcols = id_var(patients)]
-
 dyn <- load_step(dict[dynamic_vars], interval = interval, cache = TRUE)
 sta <- load_step(dict[static_vars], cache = TRUE)
 
-map_to_patients <- function(x) {
-  merge(patient_ids, x, all.x = TRUE)
-}
-
-dyn_fmt <- function_step(dyn, map_to_grid, patient_windows = patients)
-dyn_fmt <- filter_step(dyn_fmt, patients)
-rename_cols(dyn_fmt, c("stay_id", "time"), meta_vars(dyn_fmt), by_ref = TRUE)
-
-sta_fmt <- function_step(sta, map_to_patients)
-rename_cols(sta_fmt, c("stay_id"), id_vars(sta), by_ref = TRUE)
-
-outc_fmt <- labels$labels
-setcolorder(outc_fmt, c("stay_id", "label"))
+formatted <- landmark_output_tables(dyn, sta, patients, labels$labels)
+dyn_fmt <- formatted$dyn
+sta_fmt <- formatted$sta
+outc_fmt <- formatted$outc
 
 out_path <- file.path(path, frequency_output_src(src, frequency))
 dir.create(out_path, recursive = TRUE, showWarnings = FALSE)
