@@ -50,6 +50,13 @@ mimic_death_icu <- function(x, env, ...){
 
 miiv_death_icu <- function(x, env, ...){
   icu_wards <- sort(unique(env[["icustays"]]$first_careunit))
+  transfers <- load_ts(env[["transfers"]], index_var = "intime")
+  rename_cols(transfers, "ward", "careunit", by_ref = TRUE)
+  mi_death_icu(x, transfers, icu_wards, ...)
+}
+
+miiv_death_icu_landmark <- function(x, env, ...){
+  icu_wards <- sort(unique(env[["icustays"]]$first_careunit))
   transfers <- load_ts(
     env[["transfers"]],
     id_var = "hadm_id",

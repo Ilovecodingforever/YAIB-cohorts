@@ -108,12 +108,14 @@ timestamps. Outcome metadata is cached once per source under
 configuration, ricu version, extraction code, mortality callback, and outcome
 concept dictionary.
 
-For MIMIC-IV, the mortality callback starts from hospital admission death
-events, maps hospital transfers from `hadm_id` to ICU `stay_id`, and retains a
-death only when the final care unit is an ICU. The landmark label layer excludes
-events outside the selected ICU stay, so hospital death after ICU discharge is
-not silently assigned to that stay. The existing base-cohort selection still
-determines which stays are available to the task.
+For configurable MIMIC-IV landmark tasks, the separate mortality concept starts
+from hospital admission death events, maps hospital transfers from `hadm_id` to
+ICU `stay_id`, and retains a death only when the final care unit is an ICU. The
+landmark label layer excludes events outside the selected ICU stay. Legacy
+`mortality24` deliberately retains its original MIMIC-IV callback for
+reproducibility, so the two tasks have different operational mortality
+definitions. The existing base-cohort selection still determines which stays
+are available to the task.
 
 The mortality event extraction interval is one minute. ricu floors timestamps to
 that interval; therefore events within the same minute as a landmark boundary

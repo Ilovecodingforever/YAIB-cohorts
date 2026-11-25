@@ -10,6 +10,23 @@ source("src/sequential.R")
 source("src/mortality_landmark.R")
 source("../ricu-extensions/callbacks/callback-icu-mortality.R")
 
+concept_dict <- jsonlite::read_json(
+  "../ricu-extensions/configs/outcomes/concept-dict.json",
+  simplifyVector = FALSE
+)
+legacy_miiv_concept <- concept_dict$death_icu$sources$miiv[[1]]
+landmark_miiv_concept <- concept_dict$death_icu_landmark_miiv$sources$miiv[[1]]
+hirid_concept <- concept_dict$death_icu$sources$hirid[[1]]
+stopifnot(legacy_miiv_concept$callback == "miiv_death_icu")
+stopifnot(landmark_miiv_concept$callback == "miiv_death_icu_landmark")
+stopifnot(hirid_concept$callback == "hirid_death_icu")
+stopifnot(landmark_death_concept("miiv") == "death_icu_landmark_miiv")
+stopifnot(landmark_death_concept("hirid") == "death_icu")
+stopifnot(!identical(
+  step_cache_key("miiv", "death_icu", mins(1L)),
+  step_cache_key("miiv", "death_icu_landmark_miiv", mins(1L))
+))
+
 valid_args <- validate_landmark_arguments("hirid", "1h", 24, 12)
 stopifnot(valid_args$frequency$label == "1h")
 stopifnot(valid_args$landmark$prediction_start_hours == 25)
@@ -63,6 +80,72 @@ stopifnot(identical(
   metadata_provenance_1$pipeline_md5
 ))
 unlink(metadata_cache_dir, recursive = TRUE)
+
+synthetic_stays <- as_win_tbl(
+  data.table(
+    stay_id = 1L,
+    start = as.difftime(0, units = "mins"),
+    end = as.difftime(48 * 60, units = "mins")
+  ),
+  id_vars = "stay_id",
+  index_var = "start",
+  dur_var = "end",
+  interval = mins(1L)
+)
+synthetic_death_metadata <- as_ts_tbl(
+  data.table(
+    stay_id = 1L,
+    time = as.difftime(26 * 60, units = "mins"),
+    death_icu = TRUE
+  ),
+  id_vars = "stay_id",
+  index_var = "time",
+  interval = mins(1L)
+)
+synthetic_status_metadata <- as_id_tbl(
+  data.table(stay_id = 1L, icu_discharge_status = "dead"),
+  id_vars = "stay_id"
+)
+metadata_loader_state <- new.env(parent = emptyenv())
+metadata_loader_state$requested <- character()
+metadata_loader <- load_mortality_metadata
+environment(metadata_loader) <- list2env(
+  list(
+    stay_windows = function(src, interval) synthetic_stays,
+    load_step = function(x, ...) {
+      concept_name <- names(x)[1L]
+      metadata_loader_state$requested <- c(
+        metadata_loader_state$requested,
+        concept_name
+      )
+      if (concept_name == "icu_discharge_status") {
+        synthetic_status_metadata
+      } else {
+        synthetic_death_metadata
+      }
+    }
+  ),
+  parent = environment(load_mortality_metadata)
+)
+metadata_loader(
+  "miiv",
+  as.list(setNames(rep(TRUE, 2), c("death_icu", "death_icu_landmark_miiv"))),
+  event_interval = mins(1L)
+)
+stopifnot(identical(
+  metadata_loader_state$requested,
+  "death_icu_landmark_miiv"
+))
+metadata_loader_state$requested <- character()
+metadata_loader(
+  "hirid",
+  as.list(setNames(rep(TRUE, 2), c("death_icu", "icu_discharge_status"))),
+  event_interval = mins(1L)
+)
+stopifnot(identical(
+  metadata_loader_state$requested,
+  c("death_icu", "icu_discharge_status")
+))
 
 entrypoint_smoke <- system2(
   "Rscript",
@@ -306,9 +389,33 @@ synthetic_miiv_transfers <- as_ts_tbl(
   index_var = "time",
   interval = mins(1)
 )
+
+# The legacy callback retains its pre-9bf contract: it passes only the source
+# table and index variable to load_ts and performs no ID conversion itself.
+legacy_callback_state <- new.env(parent = emptyenv())
+legacy_callback <- miiv_death_icu
+environment(legacy_callback) <- list2env(
+  list(
+    load_ts = function(x, index_var, ...) {
+      legacy_callback_state$index_var <- index_var
+      data.table::copy(synthetic_miiv_transfers)
+    },
+    rename_cols = ricu::rename_cols,
+    mi_death_icu = mi_death_icu
+  ),
+  parent = environment(miiv_death_icu)
+)
+legacy_result <- legacy_callback(
+  synthetic_death,
+  list(icustays = data.table(first_careunit = "ICU"), transfers = NULL)
+)
+stopifnot(legacy_callback_state$index_var == "intime")
+stopifnot(legacy_result[stay_id == 10L, death_icu] == FALSE)
+stopifnot(legacy_result[stay_id == 20L, death_icu] == TRUE)
+
 callback_state <- new.env(parent = emptyenv())
 callback_state$converted <- FALSE
-miiv_callback <- miiv_death_icu
+miiv_callback <- miiv_death_icu_landmark
 environment(miiv_callback) <- list2env(
   list(
     load_ts = function(x, id_var, index_var, interval, ...) {
@@ -327,7 +434,7 @@ environment(miiv_callback) <- list2env(
     mi_death_icu = mi_death_icu,
     mins = ricu::mins
   ),
-  parent = environment(miiv_death_icu)
+  parent = environment(miiv_death_icu_landmark)
 )
 miiv_result <- miiv_callback(
   synthetic_death,

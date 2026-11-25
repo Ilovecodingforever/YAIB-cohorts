@@ -121,7 +121,10 @@ load_mortality_metadata <- function(src, dict, event_interval = mins(1L)) {
   stays <- stay_windows(src, interval = event_interval)
   metadata <- landmark_metadata_from_stays(stays)
 
-  death <- load_step(dict["death_icu"], interval = event_interval)
+  death <- load_step(
+    dict[landmark_death_concept(src)],
+    interval = event_interval
+  )
   death <- landmark_death_metadata(death)
   metadata <- merge(metadata, death, by = "stay_id", all.x = TRUE)
   assert_that(!anyDuplicated(metadata$stay_id))
@@ -161,7 +164,8 @@ landmark_metadata_provenance <- function(
   list(
     schema_version = 1L,
     source = src,
-    extraction = "death_icu plus ICU stay window and HiRID discharge status",
+    mortality_concept = landmark_death_concept(src),
+    extraction = "source-specific ICU mortality concept plus ICU stay window and HiRID discharge status",
     event_interval_minutes = as.numeric(event_interval, units = "mins"),
     event_time_policy = "floor_to_event_interval",
     pipeline_files = pipeline_files,
@@ -186,6 +190,12 @@ landmark_metadata_provenance_files <- function() {
     "../ricu-extensions/callbacks/callback-icu-mortality.R",
     "../ricu-extensions/configs/outcomes/concept-dict.json"
   )
+}
+
+
+landmark_death_concept <- function(src) {
+  assert_landmark_source(src)
+  if (src == "miiv") "death_icu_landmark_miiv" else "death_icu"
 }
 
 

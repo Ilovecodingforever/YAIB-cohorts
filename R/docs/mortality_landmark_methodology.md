@@ -191,7 +191,7 @@ fixed-task cohort rule, not part of the general W/H estimand.
 
 ## E. MIMIC-IV mortality event definition
 
-The configured `death_icu` concept uses MIMIC-IV `admissions` fields:
+The legacy `death_icu` concept uses MIMIC-IV `admissions` fields:
 
 - `deathtime` as the event index;
 - `hospital_expire_flag` as the hospital-death indicator.
@@ -201,7 +201,9 @@ ID and `stay_id` as the ICU-stay ID, with `icustays.intime` and
 `icustays.outtime` defining the ICU window. MIMIC-IV hospital `transfers`
 contains `hadm_id`, `eventtype`, `careunit`, `intime`, and `outtime`.
 
-The current `miiv_death_icu()` callback now:
+The configurable landmark task uses the separate
+`death_icu_landmark_miiv` concept and `miiv_death_icu_landmark()` callback,
+which:
 
 1. loads hospital transfers explicitly by `hadm_id`;
 2. loads their time axis at one-minute resolution;
@@ -223,23 +225,23 @@ while ICU start/end come from the stay window. The label layer excludes an
 event before ICU start or after ICU end. A hospital death after ICU discharge is
 therefore not silently relabeled as an ICU death for that stay.
 
-### Previous versus current callback
+### Legacy versus landmark callback
 
-The previous MIIV callback loaded transfers without explicitly selecting
-`hadm_id` or converting them to ICU stay IDs. That was inconsistent with the
-MIMIC-III callback and with ricu's item-loading behavior, where the admission
-death concept is requested at `icustay` ID type. The previous path could compare
-hospital-admission transfer IDs with ICU-stay death IDs and fail to attribute
-multi-stay events correctly.
+The original `miiv_death_icu()` implementation is deliberately retained for
+the legacy `death_icu` concept. This preserves mortality24 reproducibility and
+comparability with earlier experiments. It is retained for compatibility, not
+because it is necessarily the most clinically accurate definition.
 
-The correction is in the shared `death_icu` callback used by the legacy
-`mortality.R` path as well as the landmark path. Consequently, MIIV
-`mortality24` output can change where the old callback failed to perform the
-hospital-to-ICU mapping. This is a correction of an existing ID-attribution
-bug, not a deliberate change to the mortality24 estimand. `R/mortality.R` and
-its fixed 30-hour task rules remain otherwise unchanged. A real-data regression
-comparison is still required before treating old and new MIIV mortality24
-files as numerically identical.
+The corrected hospital-to-ICU mapping is isolated in
+`miiv_death_icu_landmark()` and is used only by the configurable landmark
+concept. The two MIMIC-IV tasks therefore have a deliberate source-definition
+difference. Their results must not be described as differing only in
+prediction horizon or observation window. Comparisons also include a change in
+operational mortality attribution.
+
+`R/mortality.R` and `R/base_cohort.R` are unchanged. The original callback is
+not silently replaced, and the landmark metadata provenance records the
+separate concept name and the callback/concept-dictionary fingerprint.
 
 The repository currently lacks configured MIIV data, so the real ricu
 `change_id()` path could not be executed against source-backed synthetic
@@ -459,8 +461,8 @@ The following are not implemented in this task:
 - report prevalence and every exclusion reason by hospital and frequency;
 - enforce patient-level rather than stay-level train/validation/test separation;
 - quantify measurement density and missingness within the eligible cohort;
-- perform a real-data regression comparison of legacy and corrected MIIV
-  mortality24 outputs;
+- compare legacy mortality24 with the corrected landmark mortality definition
+  as distinct operational targets;
 - execute the full MIIV ricu ID map on an approved source-backed validation
   subset.
 

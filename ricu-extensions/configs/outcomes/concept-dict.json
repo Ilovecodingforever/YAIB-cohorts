@@ -122,6 +122,22 @@
       ]
     }
   },
+  "death_icu_landmark_miiv": {
+    "class": "lgl_cncpt",
+    "description": "MIMIC-IV ICU mortality for configurable landmark tasks",
+    "category": "outcome",
+    "sources": {
+      "miiv": [
+        {
+          "table": "admissions",
+          "index_var": "deathtime",
+          "val_var": "hospital_expire_flag",
+          "callback": "miiv_death_icu_landmark",
+          "class": "col_itm"
+        }
+      ]
+    }
+  },
   "icu_discharge_status": {
     "class": "fct_cncpt",
     "levels": ["alive", "dead", "unknown"],
