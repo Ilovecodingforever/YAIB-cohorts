@@ -6,9 +6,10 @@ library(vctrs)
 library(yaml)
 
 source("src/frequency.R")
+source("src/mortality_landmark.R")
 
 p <- arg_parser("Extract configurable-window ICU mortality data")
-p <- add_argument(p, "--src", help = "source database", default = "mimic_demo")
+p <- add_argument(p, "--src", help = "source database: hirid or miiv")
 p <- add_argument(p, "--frequency", help = "5min, 15min, or 1h", default = "1h")
 p <- add_argument(
   p, "--observation-hours",
@@ -23,10 +24,13 @@ p <- add_argument(
 argv <- parse_args(p)
 
 src <- argv$src
-assert_landmark_source(src)
-frequency <- frequency_spec(argv$frequency, src)
 observation_hours <- argv$observation_hours
 prediction_hours <- argv$prediction_hours
+validated <- validate_landmark_arguments(
+  src, argv$frequency, observation_hours, prediction_hours
+)
+frequency <- validated$frequency
+landmark <- validated$landmark
 
 conf <- yaml.load_file("../config.yaml")
 path <- file.path(
@@ -59,7 +63,6 @@ source("src/misc.R")
 source("src/steps.R")
 source("src/sequential.R")
 source("src/obs_time.R")
-source("src/mortality_landmark.R")
 
 cncpt_env <- new.env()
 time_flow <- "sequential"
@@ -74,25 +77,36 @@ dynamic_vars <- c(
   "temp", "tnt", "urine", "wbc"
 )
 
-landmark <- landmark_parameters(observation_hours, prediction_hours, interval)
-
 base <- arrow::read_parquet(base_path)
 base_ids <- unique(base$stay_id)
 
-metadata_dir <- file.path(path, src)
+metadata_dir <- file.path(conf$out_dir, "mortality_metadata", src)
 metadata_path <- file.path(metadata_dir, "outcome_metadata.parquet")
 metadata_provenance_path <- file.path(
-  metadata_dir, "outcome_metadata_provenance.json"
+  metadata_dir, "provenance.json"
+)
+metadata_interval <- mins(1L)
+metadata_provenance <- landmark_metadata_provenance(
+  src,
+  "../config.yaml",
+  conf$ricu_data_path,
+  canonical_provenance_files(),
+  metadata_interval
 )
 provenance <- landmark_task_provenance(
   src, observation_hours, prediction_hours, frequency,
   base_provenance, "exclude"
 )
-metadata_provenance <- provenance
-metadata_provenance$frequency <- NULL
-metadata_provenance$metadata_interval <- "1min"
 
-if (file.exists(metadata_path) && file.exists(metadata_provenance_path)) {
+metadata_exists <- file.exists(metadata_path)
+metadata_provenance_exists <- file.exists(metadata_provenance_path)
+if (xor(metadata_exists, metadata_provenance_exists)) {
+  stop(
+    "Outcome metadata and provenance must be created together; refusing to reuse an incomplete cache.",
+    call. = FALSE
+  )
+}
+if (metadata_exists && metadata_provenance_exists) {
   recorded <- jsonlite::read_json(
     metadata_provenance_path, simplifyVector = FALSE
   )
@@ -106,8 +120,7 @@ if (file.exists(metadata_path) && file.exists(metadata_provenance_path)) {
   metadata <- arrow::read_parquet(metadata_path)
   metadata <- as.data.table(metadata)
 } else {
-  metadata <- load_mortality_metadata(src, dict, event_interval = mins(1L))
-  metadata <- metadata[stay_id %in% base_ids]
+  metadata <- load_mortality_metadata(src, dict, event_interval = metadata_interval)
   dir.create(metadata_dir, recursive = TRUE, showWarnings = FALSE)
   arrow::write_parquet(metadata, metadata_path)
   jsonlite::write_json(
@@ -119,13 +132,11 @@ if (file.exists(metadata_path) && file.exists(metadata_provenance_path)) {
 }
 
 labels <- construct_landmark_labels(
-  metadata,
+  metadata[stay_id %in% base_ids],
   observation_hours,
   prediction_hours,
   unknown_policy = "exclude"
 )
-dir.create(metadata_dir, recursive = TRUE, showWarnings = FALSE)
-arrow::write_parquet(labels$metadata, metadata_path)
 eligible_ids <- labels$labels$stay_id
 
 patients <- stay_windows(src, interval = interval)
@@ -165,7 +176,12 @@ setcolorder(outc_fmt, c("stay_id", "label"))
 
 out_path <- file.path(path, frequency_output_src(src, frequency))
 dir.create(out_path, recursive = TRUE, showWarnings = FALSE)
-assert_that(!anyDuplicated(dyn_fmt[, .(stay_id, time)]))
+validate_landmark_outputs(
+  dyn_fmt,
+  sta_fmt,
+  outc_fmt,
+  landmark$prediction_start_hours
+)
 
 arrow::write_parquet(outc_fmt, file.path(out_path, "outc.parquet"))
 arrow::write_parquet(dyn_fmt, file.path(out_path, "dyn.parquet"))

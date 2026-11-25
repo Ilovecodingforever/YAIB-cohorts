@@ -13,6 +13,18 @@ assert_landmark_source <- function(src) {
 }
 
 
+validate_landmark_arguments <- function(
+    src, frequency, observation_hours, prediction_hours
+) {
+  assert_landmark_source(src)
+  spec <- frequency_spec(frequency, src)
+  list(
+    frequency = spec,
+    landmark = landmark_parameters(observation_hours, prediction_hours, spec$interval)
+  )
+}
+
+
 landmark_parameters <- function(observation_hours, prediction_hours, interval) {
   assert_that(
     is.numeric(observation_hours), length(observation_hours) == 1L,
@@ -134,7 +146,30 @@ load_mortality_metadata <- function(src, dict, event_interval = mins(1L)) {
   } else {
     "mimic_iv_icustays_outtime"
   }]
+  metadata[, event_time_precision_minutes := as.numeric(
+    event_interval, units = "mins"
+  )]
+  metadata[, event_time_discretized := TRUE]
   metadata[]
+}
+
+
+landmark_metadata_provenance <- function(
+    src, config_path, ricu_data_path, pipeline_files, event_interval
+) {
+  list(
+    schema_version = 1L,
+    source = src,
+    extraction = "death_icu plus ICU stay window and HiRID discharge status",
+    event_interval_minutes = as.numeric(event_interval, units = "mins"),
+    config_md5 = unname(tools::md5sum(normalizePath(config_path, mustWork = TRUE))),
+    pipeline_md5 = canonical_file_fingerprint(pipeline_files),
+    ricu_data_path = normalizePath(ricu_data_path, mustWork = FALSE),
+    ricu_version = tryCatch(
+      as.character(utils::packageVersion("ricu")),
+      error = function(...) NA_character_
+    )
+  )
 }
 
 
@@ -250,4 +285,71 @@ landmark_task_provenance <- function(
     unknown_policy = unknown_policy,
     base_provenance = base_provenance
   )
+}
+
+
+validate_landmark_outputs <- function(
+    dyn, sta, outc, prediction_start_hours
+) {
+  fail <- function(message) {
+    stop("landmark output validation failed: ", message, call. = FALSE)
+  }
+  required <- list(
+    dynamic = c("stay_id", "time"),
+    static = "stay_id",
+    outcome = c("stay_id", "label")
+  )
+  if (!all(required$dynamic %in% names(dyn))) {
+    fail("dyn.parquet is missing stay_id or time")
+  }
+  if (!all(required$static %in% names(sta))) {
+    fail("sta.parquet is missing stay_id")
+  }
+  if (!all(required$outcome %in% names(outc))) {
+    fail("outc.parquet is missing stay_id or label")
+  }
+  if (anyNA(dyn$stay_id) || anyNA(dyn$time) || anyNA(sta$stay_id) ||
+      anyNA(outc$stay_id)) {
+    fail("stay IDs and dynamic timestamps must be non-missing")
+  }
+  if (anyDuplicated(sta$stay_id)) {
+    fail("sta.parquet contains duplicate stay IDs")
+  }
+  if (anyDuplicated(outc$stay_id)) {
+    fail("outc.parquet contains duplicate stay IDs")
+  }
+  if (anyNA(outc$label) || !is.integer(outc$label) ||
+      !all(outc$label %in% c(0L, 1L))) {
+    fail("labels must be non-missing integer values in {0, 1}")
+  }
+  if (anyDuplicated(dyn[, .(stay_id, time)])) {
+    fail("dyn.parquet contains duplicate (stay_id,time) keys")
+  }
+  if (any(landmark_as_hours(dyn$time) >= prediction_start_hours)) {
+    fail("dynamic timestamps reach or exceed prediction_start")
+  }
+
+  outcome_ids <- sort(unique(as.character(outc$stay_id)))
+  dynamic_ids <- sort(unique(as.character(dyn$stay_id)))
+  static_ids <- sort(unique(as.character(sta$stay_id)))
+  if (!identical(outcome_ids, dynamic_ids)) {
+    fail("outcome and dynamic stay IDs do not match")
+  }
+  if (!identical(outcome_ids, static_ids)) {
+    fail("outcome and static stay IDs do not match")
+  }
+  if (any(table(as.character(dyn$stay_id)) < 1L)) {
+    fail("an eligible stay has no dynamic timestep")
+  }
+
+  forbidden <- c(
+    "death_time_hours", "outcome_status", "event_time_kind", "icu_end_kind",
+    "icu_start_hours", "icu_end_hours", "event_time_precision_minutes",
+    "event_time_discretized", "reason", "label"
+  )
+  leaked <- intersect(forbidden, union(names(dyn), names(sta)))
+  if (length(leaked)) {
+    fail(paste("outcome metadata appears among features:", paste(leaked, collapse = ", ")))
+  }
+  invisible(TRUE)
 }
