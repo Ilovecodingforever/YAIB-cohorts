@@ -182,6 +182,7 @@ landmark_metadata_provenance_files <- function() {
     "src/mortality_landmark.R",
     ".load_ricu.R",
     "src/frequency.R",
+    "src/steps.R",
     "../ricu-extensions/callbacks/callback-icu-mortality.R",
     "../ricu-extensions/configs/outcomes/concept-dict.json"
   )

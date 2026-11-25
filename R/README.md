@@ -84,6 +84,11 @@ included hourly bin index, so prediction starts at `W + 1` hours. For example,
 period `[0, 25)` hours. Labels use the interval
 `(prediction_start, prediction_start + H]`.
 
+See [mortality_landmark_methodology.md](docs/mortality_landmark_methodology.md)
+for the full estimand, eligibility rules, source-specific mortality definitions,
+temporal compromises, provenance, leakage considerations, and recommended
+sensitivity analyses.
+
 ```bash
 Rscript mortality_landmark.R --src hirid --frequency 1h \
   --observation-hours 24 --prediction-hours 12
