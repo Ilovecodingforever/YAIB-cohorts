@@ -122,6 +122,22 @@
       ]
     }
   },
+  "icu_discharge_status": {
+    "class": "fct_cncpt",
+    "levels": ["alive", "dead", "unknown"],
+    "description": "ICU discharge status",
+    "category": "outcome",
+    "sources": {
+      "hirid": [
+        {
+          "table": "general",
+          "val_var": "discharge_status",
+          "callback": "transform_fun(as.character)",
+          "class": "col_itm"
+        }
+      ]
+    }
+  },
   "aki": {
     "description": "acute kidney injury (KDIGO 1/2/3)",
     "concepts": "kdigo",

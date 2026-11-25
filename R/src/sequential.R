@@ -1,8 +1,8 @@
 
 
 
-map_to_grid <- function(x) {
-  grid <- ricu::expand(patients)
+map_to_grid <- function(x, patient_windows = patients) {
+  grid <- ricu::expand(patient_windows)
   merge(grid, x, all.x = TRUE)
 }
 

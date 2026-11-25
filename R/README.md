@@ -75,6 +75,31 @@ Once [base_cohort.R](base_cohort.R) was run, data for a single task like mortali
 Rscript "mortality.R" --src mimic_demo
 ```
 
+### Configurable mortality windows
+
+The dedicated [mortality_landmark.R](mortality_landmark.R) task preserves the
+existing YAIB hourly-bin convention. `--observation-hours W` is the last
+included hourly bin index, so prediction starts at `W + 1` hours. For example,
+`W=24` represents bins starting at `0, ..., 24` and the physical observation
+period `[0, 25)` hours. Labels use the interval
+`(prediction_start, prediction_start + H]`.
+
+```bash
+Rscript mortality_landmark.R --src hirid --frequency 1h \
+  --observation-hours 24 --prediction-hours 12
+Rscript mortality_landmark.R --src hirid --frequency 1h \
+  --observation-hours 36 --prediction-hours 12
+```
+
+The task writes W/H-specific directories such as
+`mortality_w24_h12/hirid/` and frequency-specific dynamic outputs such as
+`mortality_w24_h12/hirid_15min/`. Each output keeps the standard
+`dyn.parquet`, `sta.parquet`, `outc.parquet`, and `attrition.csv` files. The
+source-level `outcome_metadata.parquet` stores timing metadata separately and
+is never passed to YAIB as a predictor. HiRID event times are explicitly
+marked as last-MAP/heart-rate proxies; they are not recorded clinical death
+timestamps.
+
 ### HiRID and MIMIC-IV temporal resolution
 
 The base and mortality24 pipelines accept `--frequency` with `5min`, `15min`,
